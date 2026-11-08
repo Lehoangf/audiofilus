@@ -19,7 +19,7 @@ mkdir -p dist
 rm -f dist/audiofilus-ui dist/audiofilus-ui-* # los de antes, cuando eran dos
 for arch in amd64 arm64; do
   cgo=0
-  [ "$arch" = "$(go env GOARCH)" ] && cgo=1
+  [ "$arch" = "$(go env GOARCH)" ] && [ "$(go env GOOS)" = "linux" ] && cgo=1
   CGO_ENABLED=$cgo GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w $lfm" \
     -o "dist/audiofilus-$arch" ./cmd/audiofilus
   echo "dist/audiofilus-$arch"
