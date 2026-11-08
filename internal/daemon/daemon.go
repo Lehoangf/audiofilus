@@ -40,6 +40,7 @@ import (
 	"github.com/juanvillacortac/audiofilus/internal/queue"
 	"github.com/juanvillacortac/audiofilus/internal/radio"
 	"github.com/juanvillacortac/audiofilus/internal/remote"
+	"github.com/juanvillacortac/audiofilus/internal/spotify"
 	"github.com/juanvillacortac/audiofilus/internal/tray"
 )
 
@@ -113,6 +114,7 @@ type Daemon struct {
 	dlnaOn, mpdOn atomic.Bool
 	multicastMu   sync.Mutex
 	multicastOn   bool
+	spotifyMgr    *spotify.Manager
 }
 
 // Run arranca el daemon y bloquea hasta recibir quit o una señal.
@@ -148,6 +150,7 @@ func Run(paths config.Paths) error {
 
 		sysVolume: -1,
 	}
+	d.initSpotifyManager()
 	log.Printf("audiofilus on %s, home %s", d.plat.Name(), paths.Base)
 	// El remuestreo "auto": el fiel en el escritorio, el barato en las
 	// portátiles (la batería).
@@ -223,6 +226,9 @@ func Run(paths config.Paths) error {
 	var playingRadio *radio.Stream // la emisora que suena, para su título
 	var radioMu sync.Mutex
 	eng.OpenRemote = func(path string) (decode.Source, bool, error) {
+		if isSpotifyURI(path) && d.spotifyMgr != nil {
+			return d.spotifyMgr.Source(path)
+		}
 		if radio.IsRadio(path) {
 			s, ready, err := radios.Source(path)
 			if ready {
@@ -242,8 +248,26 @@ func Run(paths config.Paths) error {
 		src, err := decode.Open(local)
 		return src, err == nil, err
 	}
-	eng.Prefetch = store.Prefetch
+	eng.Prefetch = func(path string) {
+		if isSpotifyURI(path) && d.spotifyMgr != nil {
+			tr, _ := d.spotifyMgr.Track(path)
+			d.spotifyMgr.Resolver.Prefetch(tr)
+			return
+		}
+		store.Prefetch(path)
+	}
 	library.RemoteTrack = func(path string) (library.Track, bool) {
+		if isSpotifyURI(path) && d.spotifyMgr != nil {
+			if tr, ok := d.spotifyMgr.Track(path); ok {
+				return library.Track{
+					Path:   path,
+					Title:  tr.Title,
+					Artist: tr.Artist,
+					Album:  tr.Album,
+				}, true
+			}
+			return library.Track{Path: path, Title: "Spotify Track", Artist: "Spotify", Album: "Spotify"}, true
+		}
 		if radio.IsRadio(path) {
 			st, ok := radios.Station(path)
 			if !ok {
@@ -843,6 +867,8 @@ func (d *Daemon) handle(req control.Request) (any, error) {
 		return d.mpdCommand(req.Args) // mpd.go
 	case "alarm":
 		return d.alarmCommand(req.Args)
+	case "spotify":
+		return d.handleSpotify(req) // spotify.go
 	case "speed":
 		// La velocidad de reproducción (audiolibros y podcasts), sin tocar
 		// el tono; la pone la interfaz según lo que suena.
