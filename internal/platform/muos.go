@@ -42,6 +42,9 @@ const (
 	muosScripts  = "/opt/muos/script/device"
 	muosDevice   = "/opt/muos/device/config"
 	muosConfig   = "/opt/muos/config"
+	brickLeds    = "/sys/class/led_anim/max_scale"
+	brickDisp    = "/sys/kernel/debug/dispdbg"
+	brickFn      = "/sys/class/switch/fn/state"
 )
 
 // muos es la plataforma de muOS.
@@ -55,6 +58,9 @@ type muos struct {
 	screenOff     bool
 	savedGovernor string
 	frozenKeys    []int
+	ledPath       string
+	savedLeds     string
+	fnWatcher     *fnSwitchWatcher
 }
 
 // detectMuOS dice si corre en muOS (por sus scripts y su /run/muos).
@@ -132,6 +138,19 @@ func (m *muos) EnterSleep(screenOff bool) error {
 	if screenOff {
 		run(filepath.Join(muosScripts, "bright.sh"), "0")
 		m.screenOff = true
+		lp := m.ledPath
+		if lp == "" {
+			lp = brickLeds
+		}
+		if b, err := os.ReadFile(lp); err == nil {
+			m.savedLeds = strings.TrimSpace(string(b))
+			_ = os.WriteFile(lp, []byte("0"), 0o644)
+		}
+		if fileExists(brickDisp) {
+			for _, w := range [][2]string{{"name", "lcd0"}, {"command", "setbl"}, {"param", "0"}, {"start", "1"}} {
+				_ = os.WriteFile(filepath.Join(brickDisp, w[0]), []byte(w[1]), 0o644)
+			}
+		}
 	}
 	if g := orDefault(m.opts.Governor, "powersave"); g != "keep" {
 		m.savedGovernor = readGovernor()
@@ -175,9 +194,67 @@ func (m *muos) ExitSleep() error {
 		}
 		run(filepath.Join(muosScripts, "bright.sh"), strconv.Itoa(nudge))
 		run(filepath.Join(muosScripts, "bright.sh"), strconv.Itoa(b))
+		lp := m.ledPath
+		if lp == "" {
+			lp = brickLeds
+		}
+		if m.savedLeds != "" && m.savedLeds != "0" {
+			_ = os.WriteFile(lp, []byte(m.savedLeds), 0o644)
+			m.savedLeds = ""
+		}
 		m.screenOff = false
 	}
 	return nil
+}
+
+// fnSwitchWatcher monitoriza el interruptor físico Fn de la TrimUI Brick Pro.
+type fnSwitchWatcher struct {
+	path       string
+	fnCallback func(closed bool)
+	stop       chan struct{}
+}
+
+func newFnSwitchWatcher(callback func(closed bool)) *fnSwitchWatcher {
+	return &fnSwitchWatcher{
+		path:       brickFn,
+		fnCallback: callback,
+		stop:       make(chan struct{}),
+	}
+}
+
+// Run observa cambios en el interruptor Fn aplicando un debounce de 300 ms.
+func (w *fnSwitchWatcher) Run() {
+	if !fileExists(w.path) {
+		return
+	}
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+	lastState := ""
+	for {
+		select {
+		case <-w.stop:
+			return
+		case <-ticker.C:
+			b, err := os.ReadFile(w.path)
+			if err != nil {
+				continue
+			}
+			st := strings.TrimSpace(string(b))
+			if st != lastState {
+				lastState = st
+				if w.fnCallback != nil {
+					w.fnCallback(st == "1" || st == "open" || st == "active")
+				}
+			}
+		}
+	}
+}
+
+func (w *fnSwitchWatcher) Close() {
+	if w.stop != nil {
+		close(w.stop)
+		w.stop = nil
+	}
 }
 
 // Rumble vibra por la ruta que muOS da para la consola.
