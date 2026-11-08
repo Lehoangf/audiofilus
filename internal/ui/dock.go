@@ -28,6 +28,7 @@ var dockEntries = []dockEntry{
 	{screen: NowPlaying, search: false, icon: "disc", label: "scr_now"},
 	{screen: LibraryScreen, search: false, icon: "folder", label: "scr_library"},
 	{screen: LibraryScreen, search: true, icon: "search", label: "tab_search"},
+	{screen: Spotify, search: false, icon: "note", label: "scr_spotify"},
 	{screen: Radio, search: false, icon: "radio", label: "scr_radio"},
 	{screen: Podcasts, search: false, icon: "mic", label: "scr_podcasts"},
 	{screen: Modules, search: false, icon: "tracker", label: "scr_modules"},

@@ -60,7 +60,10 @@ func (a *App) drawQR(dst *ebiten.Image) {
 	}
 	n := qr.Bounds().Dx()
 	room := h - topH - bottomH - 40
-	s := max(1, min(room/n, 5))
+	s := max(1, min(room/n, 8))
+	if room >= 2*n {
+		s = max(2, min(room/n, 8))
+	}
 	size := n * s
 	url := a.qrURL[len("https://"):]
 	pw := max(size, textWidth(url, SmallFace)) + 16

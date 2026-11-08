@@ -203,6 +203,7 @@ type App struct {
 	yt         ytState           // YouTube Music, si hay yt-dlp (ytmusic.go)
 	radio      radioState        // la radio por internet (radio.go)
 	pod        podState          // los podcasts (podcasts.go)
+	spot       spotifyState      // Spotify online (spotify.go)
 	snd        soundState        // los sonidos de la interfaz (sounds.go)
 	local      *Library          // la biblioteca de la tarjeta (a.lib es la que se ve)
 	remotes    []*remoteSource   // los servidores (servers.go)
@@ -881,6 +882,10 @@ func (a *App) updateMain() {
 		a.updateGames()
 		return
 	}
+	if a.screen == Spotify && a.menu == nil {
+		a.updateSpotify()
+		return
+	}
 	if a.screen == Visual && a.menu == nil {
 		a.updateVisual()
 		return
@@ -1500,6 +1505,8 @@ func (a *App) drawScreen(dst *ebiten.Image, s Screen) {
 			a.drawRadio(dst)
 		case Podcasts:
 			a.drawPodcasts(dst)
+		case Spotify:
+			a.drawSpotify(dst)
 		case Modules:
 			a.drawModules(dst)
 		case Settings:
