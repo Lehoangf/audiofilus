@@ -30,6 +30,10 @@ export AUDIOFILUS_HANDHELD=1
 # The UI presents through SDL2 (KMS/DRM); SDL gives the gamepad mapping.
 export EBITENGINE_UI_BACKEND=sdl2
 
+if [ -f /sys/class/led_anim/max_scale ] || grep -q "Allwinner" /proc/cpuinfo 2>/dev/null; then
+	export AUDIOFILUS_DEVICE="TrimUI Brick Pro"
+fi
+
 chmod +x ./audiofilus.aarch64 2>/dev/null
 ./audiofilus.aarch64 >"$APP_DIR/log.txt" 2>&1 &
 UI=$!
