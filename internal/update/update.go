@@ -1,10 +1,8 @@
-// Package update busca versiones nuevas de audiofilus en las releases de
-// GitHub y las instala encima de la que corre: baja el paquete que le toca a
-// esta instalación (el port de PortMaster, la app de muOS, el tar.gz de Linux
-// o el zip de Windows), comprueba su SHA256 contra el SHA256SUMS de la
-// release y cambia los archivos uno a uno (cada uno se escribe aparte y se
-// renombra encima, así un corte no deja nada a medias). La configuración
-// (audiofilus.json, data/) no viene en los paquetes y no se toca.
+// Package update checks for new releases on GitHub and installs them over the
+// running application: downloads the appropriate package for this platform
+// (PortMaster port, muOS app, Linux tar.gz, or Windows zip), verifies its
+// SHA256 against SHA256SUMS, and replaces files atomically.
+// Configuration (audiofilus.json, data/) is never touched.
 package update
 
 import (
@@ -30,25 +28,24 @@ import (
 	"time"
 )
 
-// Repo es el repositorio de las releases.
-const Repo = "juanvillacortac/audiofilus"
+// Repo is the GitHub repository releases are fetched from.
+const Repo = "Lehoangf/audiofilus"
 
-// apiBase es la API de GitHub (los tests la cambian por un servidor local).
+// apiBase is the GitHub API base URL (overridden in tests).
 var apiBase = "https://api.github.com"
 
-// client es el cliente HTTP: con un límite para la consulta, no para la
-// descarga (que puede ser lenta en la wifi de una portátil).
+// client is the HTTP client for release queries and downloads.
 var client = &http.Client{Timeout: 10 * time.Minute}
 
-// Release es una versión publicada.
+// Release represents a published GitHub release.
 type Release struct {
-	Tag    string            // "v0.9.0"
-	Notes  string            // las notas, en Markdown
-	URL    string            // su página
-	Assets map[string]string // nombre → dirección de descarga
+	Tag    string            // e.g. "v0.9.0"
+	Notes  string            // Release notes in Markdown
+	URL    string            // Web page URL
+	Assets map[string]string // asset name -> download URL
 }
 
-// Latest es la última release publicada.
+// Latest returns the latest published release.
 func Latest(ctx context.Context) (*Release, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -84,7 +81,7 @@ func Latest(ctx context.Context) (*Release, error) {
 	return rel, nil
 }
 
-// parse lee "v1.2.3" (o "1.2.3"); ok es false si no es una versión.
+// parse parses "v1.2.3" (or "1.2.3"); ok is false if not a valid semver triplet.
 func parse(v string) (n [3]int, ok bool) {
 	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
 	if len(parts) != 3 {
@@ -100,8 +97,8 @@ func parse(v string) (n [3]int, ok bool) {
 	return n, true
 }
 
-// Newer dice si tag es más nueva que current. Con current que no es una
-// versión ("dev", una compilación a mano), nunca.
+// Newer returns true if tag is strictly newer than current version.
+// If current is non-versioned (e.g. "dev"), it returns false.
 func Newer(current, tag string) bool {
 	c, ok1 := parse(current)
 	t, ok2 := parse(tag)
@@ -116,20 +113,18 @@ func Newer(current, tag string) bool {
 	return false
 }
 
-// Kind es cómo está instalado audiofilus, es decir, qué paquete le toca.
+// Kind identifies the installation packaging format.
 type Kind int
 
 const (
-	None       Kind = iota // no se sabe (go run, una copia suelta): sin actualizaciones
-	PortMaster             // el port: audiofilus-portmaster.zip
-	MuOS                   // la app de muOS: audiofilus.muxapp
-	Linux                  // el escritorio Linux: audiofilus-linux-<arch>.tar.gz
-	Windows                // audiofilus-windows-amd64.zip
+	None       Kind = iota // Unknown / manual copy: self-updates disabled
+	PortMaster             // PortMaster port: audiofilus-portmaster.zip
+	MuOS                   // muOS application package: audiofilus.muxapp
+	Linux                  // Linux desktop tarball: audiofilus-linux-<arch>.tar.gz
+	Windows                // Windows zip: audiofilus-windows-amd64.zip
 )
 
-// Detect mira la carpeta del ejecutable para saber cómo se instaló: la app de
-// muOS tiene mux_launch.sh, el port de PortMaster port.json; si no, el
-// escritorio, si el ejecutable se llama como en su paquete.
+// Detect inspects executable directory and name to determine installation kind.
 func Detect(exe string) Kind {
 	dir, base := filepath.Dir(exe), filepath.Base(exe)
 	exists := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
@@ -146,7 +141,7 @@ func Detect(exe string) Kind {
 	return None
 }
 
-// Asset es el nombre del paquete que le toca a k.
+// Asset returns the release asset filename for kind k.
 func Asset(k Kind) string {
 	switch k {
 	case PortMaster:
@@ -161,7 +156,7 @@ func Asset(k Kind) string {
 	return ""
 }
 
-// prefix es la carpeta del paquete cuyo contenido va en la del ejecutable.
+// prefix returns the archive root directory to strip when extracting.
 func prefix(k Kind) string {
 	switch k {
 	case PortMaster, MuOS:
@@ -172,10 +167,10 @@ func prefix(k Kind) string {
 	return ""
 }
 
-// Progress recibe cuánto se lleva bajado del paquete (total puede ser -1).
+// Progress receives download progress bytes (total may be -1 if unknown).
 type Progress func(done, total int64)
 
-// Install baja e instala rel en la carpeta del ejecutable exe.
+// Install downloads and installs release rel into the executable's directory.
 func Install(ctx context.Context, rel *Release, exe string, progress Progress) error {
 	k := Detect(exe)
 	name := Asset(k)
@@ -193,12 +188,10 @@ func Install(ctx context.Context, rel *Release, exe string, progress Progress) e
 	return place(k, filepath.Dir(exe), files)
 }
 
-// APK es el paquete de la app de Android (la de GitHub: la de Google Play
-// la actualiza la tienda).
+// APK is the Android application package filename.
 const APK = "audiofilus.apk"
 
-// Fetch baja el paquete name de rel a dest, comprobado con su SHA256 (para
-// la app de Android, que lo instala el sistema).
+// Fetch downloads release asset name to dest, verifying SHA256.
 func Fetch(ctx context.Context, rel *Release, name, dest string, progress Progress) error {
 	data, err := verified(ctx, rel, name, progress)
 	if err != nil {
@@ -210,8 +203,7 @@ func Fetch(ctx context.Context, rel *Release, name, dest string, progress Progre
 	return os.WriteFile(dest, data, 0o644)
 }
 
-// verified baja el paquete name de rel y comprueba su SHA256 con el
-// SHA256SUMS de la release.
+// verified downloads asset name and verifies its checksum against SHA256SUMS.
 func verified(ctx context.Context, rel *Release, name string, progress Progress) ([]byte, error) {
 	url, ok := rel.Assets[name]
 	if !ok {
@@ -239,8 +231,7 @@ func verified(ctx context.Context, rel *Release, name string, progress Progress)
 	return data, nil
 }
 
-// download baja url entera a memoria (los paquetes son de unos 20 MB; el APK,
-// de unos 40).
+// download downloads an entire URL into memory with progress updates.
 func download(ctx context.Context, url string, progress Progress) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -271,7 +262,7 @@ func download(ctx context.Context, url string, progress Progress) ([]byte, error
 	}
 }
 
-// sumFor busca el SHA256 de name en un SHA256SUMS ("<hash>  <nombre>").
+// sumFor retrieves the SHA256 hash for name from a SHA256SUMS formatted content.
 func sumFor(sums []byte, name string) (string, error) {
 	sc := bufio.NewScanner(bytes.NewReader(sums))
 	for sc.Scan() {
@@ -283,28 +274,27 @@ func sumFor(sums []byte, name string) (string, error) {
 	return "", fmt.Errorf("%s: no checksum in SHA256SUMS", name)
 }
 
-// file es un archivo del paquete: su ruta dentro de la instalación y su
-// contenido.
+// file represents an extracted package file entry.
 type file struct {
-	path string // relativa a la carpeta del ejecutable ("../Audiofilus.sh" para el lanzador del port)
+	path string // Relative to executable directory ("../Audiofilus.sh" for port launcher)
 	data []byte
 	exec bool
 }
 
-// extract saca del paquete los archivos que van en la instalación.
+// extract extracts installation files from archive data.
 func extract(k Kind, data []byte) ([]file, error) {
 	var out []file
 	add := func(name string, mode os.FileMode, r io.Reader) error {
 		rel, ok := strings.CutPrefix(name, prefix(k))
 		switch {
 		case k == PortMaster && (name == "Audiofilus.sh" || name == "gameinfo.xml"):
-			rel = "../" + name // junto a la carpeta del port (lo único fuera de ella)
+			rel = "../" + name // Port launcher placed next to port directory
 		case !ok, rel == "", strings.HasSuffix(rel, "/"):
 			return nil
 		case strings.Contains(rel, ".."), path.IsAbs(rel):
-			return nil // un paquete que quiere escribir fuera de la instalación
+			return nil // Prevent directory traversal
 		case rel == "audiofilus.json", strings.HasPrefix(rel, "data/"):
-			return nil // la configuración no viene en los paquetes, pero por si acaso
+			return nil // Never overwrite user configuration or database
 		}
 		b, err := io.ReadAll(r)
 		if err != nil {
@@ -359,18 +349,15 @@ func extract(k Kind, data []byte) ([]file, error) {
 	return out, nil
 }
 
-// isExec dice si un archivo del paquete se ejecuta (los zip pueden no
-// guardar el permiso).
+// isExec checks if a file requires executable permissions.
 func isExec(rel string) bool {
 	base := path.Base(rel)
 	return strings.HasSuffix(base, ".aarch64") || strings.HasSuffix(base, ".x86_64") ||
 		strings.HasSuffix(base, ".sh") || base == "audiofilus" || strings.HasSuffix(base, ".exe")
 }
 
-// place escribe los archivos en dir: cada uno aparte (.new) y luego encima.
-// En Windows el ejecutable en uso no se puede pisar, pero sí renombrar: el
-// viejo queda como .old y se borra en el siguiente arranque (Cleanup). El
-// lanzador del port y gameinfo.xml solo se cambian si ya estaban.
+// place writes extracted files to dir atomically via .new files.
+// On Windows, in-use executables are renamed to .old first.
 func place(k Kind, dir string, files []file) error {
 	for _, f := range files {
 		dst := filepath.Join(dir, filepath.FromSlash(f.path))
@@ -407,7 +394,7 @@ func place(k Kind, dir string, files []file) error {
 	return nil
 }
 
-// Cleanup borra lo que dejó una actualización en Windows (los .old).
+// Cleanup removes leftover .old files on Windows.
 func Cleanup(exe string) {
 	if runtime.GOOS != "windows" {
 		return

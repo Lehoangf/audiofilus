@@ -1,10 +1,11 @@
 package ui
 
 import (
-	"github.com/juanvillacortac/audiofilus/internal/remote"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/juanvillacortac/audiofilus/internal/lyrics"
+	"github.com/juanvillacortac/audiofilus/internal/remote"
 )
 
 // El menú (Y) es un panel que sube desde abajo: una cabecera con la portada y
@@ -199,9 +200,13 @@ func (a *App) openItemMenu(v *view) {
 	case vAlbums:
 		al := v.albums[v.sel]
 		a.menu = a.songsMenu(al.Title, al.Songs, nil, al.Artist)
+		if !al.noAlbum {
+			a.menu.items = append(a.menu.items, a.ytMoreItems(al.Artist, al.Title)...) // ytmusic.go
+		}
 	case vArtists:
 		ar := v.artists[v.sel]
 		a.menu = a.songsMenu(ar.Name, ar.AllSongs(), nil, "")
+		a.menu.items = append(a.menu.items, a.ytMoreItems(ar.Name, "")...)
 	case vPlaylists:
 		pl := v.playlists[v.sel]
 		a.smartFill(pl)
@@ -236,6 +241,7 @@ func (a *App) openItemMenu(v *view) {
 		}
 		a.menu = a.songsMenu(s.Title, songs, al, artist)
 		a.menu.items = append(a.menu.items, a.markItems(s)...)
+		a.menu.items = append(a.menu.items, a.ytMoreItems(artist, "")...)
 		if v.kind == vPlaylist && v.pl != nil && !v.pl.Remote {
 			a.menu.items = append(a.menu.items, a.playlistSongItems(v.pl, v.sel)...)
 		}
@@ -257,12 +263,14 @@ func (a *App) openNowMenu() {
 	if t, ok := a.streamSavable(); ok {
 		m.items = append(m.items, menuItem{label: T("ytm_download"), icon: "download", do: func() { a.ytDownload(t) }})
 	}
-	if len(a.downloadJobs()) > 0 {
-		m.items = append(m.items, menuItem{label: T("ytm_jobs"), icon: "download", do: a.openDownloads})
-	}
 	if a.playingSong.Path != "" {
 		m.items = append(m.items, menuItem{label: T("lyr_title"), icon: "lyrics", do: a.openLyrics})
-		m.items = append(m.items, a.markItems(a.playingSong)...)
+		if lyrics.IsLocal(a.playingSong.Path) {
+			m.items = append(m.items, menuItem{label: T("lyrics_download_current"), icon: "note", do: a.fetchCurrentSongLyrics})
+		}
+		if !isSpotifyPath(a.playingSong.Path) {
+			m.items = append(m.items, a.markItems(a.playingSong)...)
+		}
 	}
 	m.items = append(m.items, a.castItems()...) // enviar a un aparato (castui.go)
 	if a.spoken() {
@@ -285,8 +293,70 @@ func (a *App) openNowMenu() {
 			}
 			return T(visNames[a.vis.kind])
 		}})
+	m.items = append(m.items, menuItem{
+		label: T("set_now_viz"),
+		icon:  "vis_bars",
+		value: func() string { return a.nowPlayingVizLabel() },
+		do:    func() { a.cycleNowPlayingViz() },
+	})
+	m.items = append(m.items, menuItem{
+		label:  T("lyr_now_playing"),
+		icon:   "lyrics",
+		active: func() bool { return a.cfg.UI.NowPlayingLyrics },
+		value:  func() string { return onOffLabel(a.cfg.UI.NowPlayingLyrics) },
+		do: func() {
+			a.cfg.UI.NowPlayingLyrics = !a.cfg.UI.NowPlayingLyrics
+			a.saveConfig()
+		},
+	})
+	m.items = append(m.items, menuItem{
+		label:  T("set_up_next"),
+		icon:   "playnext",
+		active: func() bool { return a.upNextMode() != "off" },
+		value:  func() string { return a.upNextModeLabel() },
+		do:     func() { a.cycleUpNextMode() },
+	})
+	m.items = append(m.items, menuItem{
+		label: T("set_prog_style"),
+		icon:  "note",
+		value: func() string { return a.progressStyleLabel() },
+		do:    func() { a.cycleProgressStyle() },
+	})
+	m.items = append(m.items, menuItem{
+		label: T("scr_visual"),
+		icon:  "visual",
+		do:    func() { a.screen = Visual; a.menu = nil },
+	})
 	if song := a.playingSong; song.Path != "" {
-		if remote.IsRemote(song.Path) {
+		if isSpotifyPath(song.Path) {
+			id := extractSpotifyID(song.Path)
+			tr := spotifyTrack{ID: id, Title: song.Title, Artist: song.Artist, Album: song.Album}
+			likeLabel := T("spotify_like")
+			if a.isSpotifyTrackLiked(id) {
+				likeLabel = T("spotify_unlike")
+			}
+			m.items = append(m.items,
+				menuItem{
+					label: likeLabel,
+					icon:  "heart",
+					do: func() {
+						a.toggleSpotifyLike(tr)
+					},
+				},
+				menuItem{
+					label: T("t_addlist"),
+					icon:  "list",
+					do: func() {
+						a.openAddToSpotifyPlaylist(tr)
+					},
+				},
+			)
+			if _, downloaded := a.isSpotifyTrackDownloaded(tr); downloaded {
+				m.items = append(m.items, menuItem{label: T("spotify_downloaded"), icon: "check", do: func() { a.flash(T("spotify_downloaded")) }})
+			} else {
+				m.items = append(m.items, menuItem{label: T("spotify_download"), icon: "download", do: func() { a.downloadSpotifyTrack(tr) }})
+			}
+		} else if remote.IsRemote(song.Path) {
 			m.items = append(m.items, menuItem{label: T("ytm_download"), icon: "download", do: func() { a.downloadRemote([]Song{song}) }})
 		} else {
 			m.items = append(m.items, menuItem{label: T("t_addlist"), icon: "list", do: func() { a.openAddToPlaylist([]Song{song}) }})
@@ -299,9 +369,9 @@ func (a *App) openNowMenu() {
 		}},
 		menuItem{label: T("t_queue"), icon: "list", do: func() { a.screen = Queue }},
 		menuItem{label: T("set_shuffle"), icon: "shuffle",
-			do:     func() { a.send("shuffle", onOffArg(!a.status.Shuffle)); a.status.Shuffle = !a.status.Shuffle },
+			do:     func() { a.cycleShuffle() },
 			active: func() bool { return a.status.Shuffle },
-			value:  func() string { return onOffLabel(a.status.Shuffle) }},
+			value:  func() string { return a.shuffleModeLabel() }},
 		menuItem{label: T("set_repeat"), icon: "repeat",
 			do: func() {
 				next := map[string]string{"off": "all", "all": "one", "one": "off"}[orDefault(a.status.Repeat, "off")]
@@ -419,7 +489,9 @@ func (a *App) drawMenu(dst *ebiten.Image) {
 		if it.cover != nil && !it.cover.missing {
 			a.drawCover(dst, it.cover, t.x+t.w/2-7, top, 14, 1)
 		} else {
-			dst.DrawImage(icon(it.icon), op)
+			if ic := icon(it.icon); ic != nil {
+				dst.DrawImage(ic, op)
+			}
 		}
 		label := it.label
 		ly := top + 14 + 5

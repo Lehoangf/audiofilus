@@ -514,6 +514,13 @@ var iconArt = map[string]string{
 ##..
 #...
 `,
+	// sparkle es el destello de Smart Shuffle de Spotify.
+	"sparkle": `
+...#...
+..###..
+.#####.
+..###..
+...#...`,
 	// gh es el gato de GitHub en pequeño, para la baldosa de Ajustes.
 	"gh": `
 .#...#.
@@ -553,6 +560,15 @@ var iconArt = map[string]string{
 ###...###
 ###..####
 ###.#####
+.#######.`,
+	// spotify marca canciones y resultados de Spotify.
+	"spotify": `
+.#######.
+#.......#
+#.#####.#
+#.......#
+#..####.#
+#.......#
 .#######.`,
 	"download": `
 ...#...
@@ -595,6 +611,15 @@ var iconArt = map[string]string{
 .#####.
 ...#...
 .#####.`,
+	// rename es un alias para pencil
+	"rename": `
+.....##
+....###
+...###.
+..###..
+.###...
+###....
+#......`,
 }
 
 var icons = map[string]*ebiten.Image{}
@@ -603,8 +628,24 @@ func icon(name string) *ebiten.Image {
 	if img, ok := icons[name]; ok {
 		return img
 	}
-	rows := strings.Split(strings.TrimSpace(iconArt[name]), "\n")
-	img := image.NewRGBA(image.Rect(0, 0, len(strings.TrimSpace(rows[0])), len(rows)))
+	art, ok := iconArt[name]
+	if !ok || strings.TrimSpace(art) == "" {
+		if fallback, ok := icons["note"]; ok {
+			return fallback
+		}
+		art = iconArt["note"]
+	}
+	rows := strings.Split(strings.TrimSpace(art), "\n")
+	w := 0
+	for _, row := range rows {
+		if rw := len(strings.TrimSpace(row)); rw > w {
+			w = rw
+		}
+	}
+	if w == 0 {
+		w = 7
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, len(rows)))
 	for y, row := range rows {
 		for x, c := range strings.TrimSpace(row) {
 			if c == '#' {

@@ -32,7 +32,7 @@ func (a *App) guideRows() (own, all []hint) {
 	case a.dock.open:
 		own = []hint{{"<>", "g_dock_move"}, {"SEL/A", "g_dock_go"}, {"B", "h_close"}}
 	case a.screen == NowPlaying:
-		own = []hint{{"A/Y", "g_pause"}, {"<>", "g_tap_skip"}, {"<> ...", "g_hold_seek"}, {"X", "g_shuffle"}, {"X X", "g_random"}, {"B", "g_library"}}
+		own = []hint{{"A", "g_pause"}, {"Y", "h_lyrics"}, {"<>", "g_tap_skip"}, {"<> ...", "g_hold_seek"}, {"X", "g_shuffle"}, {"B", "g_library"}}
 	case a.screen == LibraryScreen && a.searchTyping():
 		own = []hint{{"A", "h_type"}, {"B", "h_del"}, {"X", "h_space"}, {"Y", "g_clear"}, {"START", "h_search"}}
 	case a.screen == LibraryScreen:

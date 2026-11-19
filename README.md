@@ -1,23 +1,19 @@
 <p align="center">
-  <img src="site/img/logo.png" alt="audiofilus" width="460">
+  <img src="site/img/logo.png" alt="Audiofilus" width="460">
 </p>
 
 <p align="center">
-  <b>A pixel-art music player for Linux handhelds.</b><br>
-  The music keeps playing while you game, and sleep mode turns the screen off so you can control it from your pocket.
+  <b>A pixel-art music player for Linux handhelds, desktops, and retro gaming consoles.</b><br>
+  <i>The music keeps playing in the background while you game, with pocket mode, synchronized lyrics, beat visualizers, and online streaming.</i>
 </p>
 
 <p align="center">
-  <a href="https://juanvillacortac.github.io/audiofilus/">Website</a> ·
-  <a href="https://portmaster.games/detail.html?name=audiofilus">Get it on PortMaster</a> ·
-  <a href="https://github.com/juanvillacortac/audiofilus/releases/latest">Download</a> ·
-  <a href="docs/README.md">Docs</a> ·
-  <a href="https://ko-fi.com/juanvillacortac">Support on Ko-fi</a>
-</p>
-
-<p align="center">
+  <a href="https://github.com/juanvillacortac/audiofilus"><img src="https://img.shields.io/badge/Upstream-juanvillacortac%2Faudiofilus-blue?logo=github" alt="Upstream Repository"></a>
   <a href="https://portmaster.games/detail.html?name=audiofilus"><img src="https://img.shields.io/badge/PortMaster-Get%20it-ff5fa2" alt="Get it on PortMaster"></a>
-  <a href="https://ko-fi.com/juanvillacortac"><img src="https://img.shields.io/badge/Ko--fi-Support%20audiofilus-6fe3c4?logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
+  <a href="https://ko-fi.com/juanvillacortac"><img src="https://img.shields.io/badge/Ko--fi-Support%20Original%20Author-6fe3c4?logo=kofi&logoColor=white" alt="Support Juan Villacorta"></a>
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License">
+  <img src="https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go" alt="Go 1.24+">
+  <img src="https://img.shields.io/badge/Spotify-OAuth2%20PKCE-1ED760?logo=spotify&logoColor=white" alt="Spotify Support">
 </p>
 
 <p align="center">
@@ -25,286 +21,191 @@
   <img src="site/img/vis-lake.webp" alt="Lake visualizer" width="320">
 </p>
 
-Runs on **Knulli, muOS, ROCKNIX, ArkOS, dArkOS and EmuELEC** through PortMaster (and as a native app on muOS; tested on an Anbernic RG34XX-SP), on **Linux and Windows** desktops, and on **iPhone and iPad**.
+---
 
-## Support
+## 📌 Acknowledgement of Original Author / Lời cảm ơn tác giả gốc
 
-Audiofilus is free, with no ads or paywalls, and I make it in my spare time. If it keeps your music going, a coffee helps me keep working on it:
+> **Original Creator & Architecture**: This project is a community-enhanced fork of **[Audiofilus](https://github.com/juanvillacortac/audiofilus)**, designed and built by **[Juan Villacorta](https://github.com/juanvillacortac)** ([Official Website](https://juanvillacortac.github.io/audiofilus/) · [Ko-fi](https://ko-fi.com/juanvillacortac)).
+> 
+> All core architectural paradigms—the autonomous background audio daemon, low-power pocket mode, gapless playback, pure-Go 8-bit sound chip emulations, Chiptune Tracker, and retro pixel aesthetic—are the brilliant work of Juan Villacorta. If you enjoy this music player, please consider supporting Juan on **[Ko-fi](https://ko-fi.com/juanvillacortac)**!
 
-<p><a href="https://ko-fi.com/juanvillacortac"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-6fe3c4?logo=kofi&logoColor=white&style=for-the-badge" alt="Support on Ko-fi"></a></p>
+---
 
-## Features
+## 🌟 What's New in this Fork / Điểm nổi bật của bản Fork
 
-### Background play
+Bản fork này bổ sung các tính năng nâng cao dành riêng cho cộng đồng máy chơi game cầm tay (đặc biệt là **TrimUI Brick / Brick Pro**, **Anbernic RG34XX-SP / RG35XX**, **muOS**, **Knulli**) và hỗ trợ nghe nhạc online Spotify:
 
-- **The audio lives in its own service.** The interface is only a remote: close it, open an emulator, and the music keeps going.
-- **Controls from inside any game:** hold `FN` and press a button to pause, skip, go back or seek.
-- **Headphone buttons**, Bluetooth or wired: one press pauses, two skip, three go back. Devices are watched with inotify, so waiting for them costs no CPU.
-- **Sleep mode:** double `START` or the power button turns the screen off, lowers the CPU clock and turns the triggers into gestures. A closed lid keeps it asleep. On an RG34XX-SP it draws about 260 mA: around 11 to 12 hours of music on its 3300 mAh battery (see [docs/power.md](docs/power.md)).
-- Gapless playback, fade on pause, shuffle, repeat, "play next" and a queue that survives restarts.
-- Volume stays in sync with the system, including boost above 100%.
-- **Sleep timer:** stop the music after 15 to 90 minutes or at the end of the song, even with the player closed.
-- **Alarm:** wake up to whatever played last, a playlist or a favorite station, every day, on weekdays, on weekends or once, with the volume rising over a minute. The service plays it with the player closed, and on handhelds it sets the console clock (RTC) to wake it from sleep.
-- **Unplugging wired headphones pauses** the music, also in the background, so it doesn't suddenly come out of the speaker.
-- **Docked:** with an external display (HDMI) connected, closing the lid doesn't turn the screen off.
+### 1. 🎵 Tích hợp Spotify Online & Giao diện Đăng nhập Pixel Art
+- **Truy cập kho nhạc Spotify**: Duyệt Playlists cá nhân, Bài hát đã thích (Liked Songs), Album nghệ sĩ và Tìm kiếm bài hát.
+- **Smart Shuffle**: Tự động gợi ý và chèn thông minh các bài hát tương tự theo phong cách Spotify.
+- **Đăng nhập bằng mã QR & Cổng Web Pixel Art (`http://<ip>:8888/`)**:
+  - Không cần nhập tài khoản/mật khẩu trực tiếp trên máy cầm tay: chỉ cần quét mã QR bằng điện thoại.
+  - **Tự nhập Spotify API Key**: Cho phép người dùng nhập trực tiếp **Client ID** và **Client Secret** từ tài khoản [Spotify Developer](https://developer.spotify.com/dashboard) để sở hữu kết nối riêng biệt, ổn định, không lo giới hạn lượt gọi API.
+  - Thiết kế theo phong cách **Pixel Art Arcade** đồng bộ hoàn toàn với giao diện của Audiofilus.
+  - Hỗ trợ lưu cấu hình key tự động vào `data/spotify_client.json`, có nút bấm `[⚡ DÙNG KEY MẪU]` và `[✕ XÓA TRỐNG]`.
+- **Bộ nhớ đệm thông minh (LRU Cache)**: Lưu bài hát ngoại tuyến vào thẻ nhớ và tải trước (prefetch) bài kế tiếp để phát nhạc mượt mà không bị gián đoạn.
 
-### Sound
+### 2. 🕹️ Tối ưu hóa phần cứng TrimUI Brick / Brick Pro & muOS
+- **Dịch vụ gạt nút FN (`fn-daemon`)**: Điều khiển phím gạt phần cứng FN để chuyển bài, tạm dừng hoặc bật tắt nhanh các chế độ.
+- **Bộ điều chỉnh âm lượng phần cứng (`trimui-volume-attenuate`)**: Kiểm soát DAC volume và headphone gain chống rè loa khi âm lượng cao.
+- **Công cụ cấu hình trên máy (`brick-config`)**: Tích hợp giao diện điều chỉnh FN switch ngay trong menu Ports.
+- **Hỗ trợ đa hệ điều hành**: Tương thích hoàn toàn với **muOS** (gói `.muxapp` và cài đặt qua Archive Manager) và **Knulli** (Allwinner A133P / Scarab).
 
-- **ReplayGain** per song, per album, or automatic (album in order, song on shuffle), with preamp and clipping protection; Opus R128 gains too.
-- **10-band equalizer** with presets (rock, metal, vocal, bass, loudness...) and a band editor, or a **parametric equalizer** with up to 10 bands (peak, shelves, low/high pass), preamp and its curve on screen.
-- **AutoEQ:** search for your headphone model in the [AutoEq](https://github.com/jaakkopasanen/AutoEq) database and its correction goes into the parametric equalizer; or load `ParametricEQ.txt` files (AutoEq or Equalizer APO) from an `eq` folder next to the app.
-- **Crossfeed** for headphones (light, medium or strong, like bs2b): a little of each channel goes to the other, filtered and delayed, so hard-panned records are easier on the ears.
-- **Compute ReplayGain** (EBU R128) for songs that don't have it, written into the files.
-- **Resampling**: a light linear one on handhelds (battery) and a high-quality sinc one on the desktop, or pick one.
-- **Crossfade** of up to 12 seconds, which leaves consecutive songs of the same album gapless.
-- **Output rate** of 44.1, 48, 96 or 192 kHz.
+### 3. 🎤 Mini Lyrics, Karaoke Đồng bộ & Kho Visualizer Mở Rộng
+- **Mini Lyrics Overlay**: Hiển thị lời bài hát thu nhỏ nổi trên nền khi đang xem Visualizers hoặc chơi Mini-games.
+- **Hát Karaoke theo thời gian thực**: Lời bài hát đổi màu theo từng câu hát, đếm ngược nhịp dạo đầu (tích hợp tìm kiếm tự động từ [LRCLIB](https://lrclib.net)).
+- **Bộ Visualizer phong phú**: Bổ sung thêm các hiệu ứng Matrix Rain, Warp Speed, NCS Circle Pulse, Nyan Cat bên cạnh MilkDrop (Winamp presets), Lake, Drift, Trench, Plasma, v.v.
 
-<p align="center">
-  <img src="site/img/eq.png" alt="The 10-band equalizer with the Rock preset" width="360">
-  <img src="site/img/stats.png" alt="Listening stats: plays, hours and top artists" width="360">
-</p>
+### 4. 🇻🇳 Việt hóa 100% & Bộ Font chữ Pixel Tiếng Việt
+- Toàn bộ giao diện, menu cài đặt và thông báo đều được dịch sang tiếng Việt chuẩn xác.
+- Bộ font chữ Pixel chuyên biệt có đầy đủ dấu tiếng Việt không bị lỗi ô vuông: `Jersey 10 VN`, `Tiny5 VN`, `SVN-Retron-2000`, `dearpix`, `kvn-97`.
 
-### Library
+### 5. 🔄 Đồng bộ mã nguồn mới nhất từ Upstream (juanvillacortac/audiofilus)
+- Tự động phát hiện và chuyển đổi **USB DAC** khi cắm/rút tai nghe Type-C hoặc DAC rời.
+- Công nghệ dựng chữ **HarfBuzz / Silver** hỗ trợ hiển thị 21 ngôn ngữ.
+- Tính năng **MusicBrainz Lookup**: Tự động tìm kiếm và sửa thông tin bài hát (tên, album, năm, ảnh bìa).
+- Thuật toán nhận diện Folder-as-Album và tìm kiếm nghệ sĩ trên YouTube Music.
 
-- **Your own radio lists:** put `.m3u`/`.m3u8`/`.pls` station lists in the app's `radio/` folder (or any folder you pick in Settings → *Radio lists*) and they show up under Radio → My lists; or add a station by its address. Station addresses that are themselves a `.pls`/`.m3u` (like `listen.pls`) are followed to the stream. **HLS** stations (`.m3u8` split into segments: MPEG-TS, packed AAC/MP3 or fMP4, AES-128 encrypted too) play as well (thanks to volkybaba for the report and ideas).
-- Formats: **MP3, AAC/M4A, ALAC, FLAC, Ogg Vorbis, Opus, WAV, AIFF, WMA, DSD (DSF and DFF)** tracker modules (**MOD, XM, IT, S3M**) and **console music**: NSF/NSFE (NES), SPC (SNES), GBS (Game Boy), VGM/VGZ and GYM, HES (PC Engine), KSS (MSX), AY and SAP, through libgme and libvgm, which the handheld and Linux packages bring. VGMs play with any chip, arcade boards (Out Run, CPS…) included. And **8-bit computer music**, emulated in Go with nothing to install: SID (Commodore 64, the HVSC's `.sid` files, PSID and RSID with digis), YM (Atari ST, with its SID-voice and digidrum effects), VTX and PT3 (ZX Spectrum, TurboSound included). A file with a whole soundtrack shows up as one track per song. Albums ripped to one file with a **CUE sheet** show up as their tracks.
-- Songs, albums (cover grid), artists, folders and playlists (`.m3u` in your music folder plus your own, saved as `.m3u8`).
-- Search across the library, with an on-screen QWERTY keyboard.
-- The scan runs once and is cached; later runs only read new or changed files.
-- The interface colors come from the album cover.
-- **Liked songs and ratings** (1 to 5), synced with Subsonic/Navidrome and Jellyfin.
-- **Smart playlists** that fill themselves from rules (most played, never played, recently added, by genre or year...), with ready-made ones.
-- **Edit tags** of songs and albums (MP3, FLAC, Ogg, Opus, M4A), **find missing covers** (Cover Art Archive, iTunes) and **fix albums from MusicBrainz**.
-- **Send to speakers and TVs** on your network (DLNA/UPnP and Chromecast), **share your library over DLNA** and **receive music** from phones and other DLNA apps.
-- **History:** Recent and Most played lists, and stats (plays, hours, top artists, albums and songs).
-- **Scrobbling** to Last.fm and ListenBrainz (queued while offline), and play counts on your Subsonic or Jellyfin server.
-- **Lyrics**, synced karaoke-style when available (each line tints as it's sung, and dots count down the instrumental parts): from a `.lrc` or `.txt` next to the song (or in a `lyrics` folder), from the file's tags (ID3 USLT and SYLT, `LYRICS` in FLAC and Ogg, `©lyr` in M4A), or found online on [LRCLIB](https://lrclib.net), also for radio stations that send the song title. Pick a different version from the list, nudge the timing, or turn online lookups off in Settings.
+---
 
-<p align="center">
-  <img src="site/img/colors.webp" alt="Colors following four album covers" width="360">
-</p>
+## 📥 Hướng dẫn cài đặt / Installation Guide
 
-<p align="center">
-  <img src="site/img/lyrics.webp" alt="Synced lyrics tinting line by line, with dots during the instrumental intro" width="360">
-</p>
+### Cách 1: Cài đặt trên máy cầm tay TrimUI Brick / Brick Pro
 
-<p align="center">
-  <img src="site/img/albums.png" alt="Albums" width="360">
-  <img src="site/img/queue.png" alt="Queue" width="360">
-</p>
+#### A. Hệ điều hành Knulli OS
+1. Tải bản phát hành mới nhất hoặc file `audiofilus.aarch64`.
+2. Cắm thẻ nhớ vào máy tính (hoặc kết nối qua Samba/SFTP).
+3. Sao chép toàn bộ thư mục `audiofilus` vào thư mục Ports trên thẻ nhớ:
+   ```
+   /userdata/roms/ports/audiofilus/
+   ```
+4. Đảm bảo file launcher `Audiofilus.sh` nằm tại:
+   ```
+   /userdata/roms/ports/Audiofilus.sh
+   ```
+5. *(Tùy chọn dành cho TrimUI Brick Pro)* Chạy script `update_sd.bat` trên Windows để tự động cài đặt `fn-daemon` và `brick-config` vào `/userdata/system/fn_switch/`.
+6. Lắp thẻ vào máy, cập nhật danh sách game (Update Gamelist) và mở **Audiofilus** trong mục **Ports**.
 
-### Remote sources
+#### B. Hệ điều hành muOS
+1. Tải gói `audiofilus.muxapp` từ mục Releases.
+2. Sao chép file `audiofilus.muxapp` vào thư mục `ARCHIVE/` trên thẻ nhớ SD1 hoặc SD2.
+3. Trên máy TrimUI Brick Pro, vào **Applications** -> **Archive Manager**, chọn `audiofilus.muxapp` và nhấn cài đặt.
+4. Mở Audiofilus trong danh mục **Applications**.
 
-| Source | What you get |
-|---|---|
-| **Subsonic / OpenSubsonic** (Navidrome and others) | Browse, stream, cache and download; edit their playlists |
-| **Jellyfin** | Same, with your Jellyfin user and its playlists |
-| **Internet radio** | Stations from radio-browser.info by country or genre, with the live song title (ICY); Icecast/Shoutcast and HLS streams |
-| **Podcasts** | Top shows for your country, search, any RSS feed; downloads and resume; 30-second skips and speed without changing the pitch |
-| **Audiobooks** | `.m4b` files, files with the audiobook genre, or books in an `Audiobooks` folder (one file per chapter). It remembers where you were in each book even if music plays in between, shows chapters (`.m4b` and MP3), L1/R1 change chapter, ←/→ skip 30 seconds, and speed goes from 0.75× to 2× without changing the pitch |
-| **YouTube Music** | Search without signing in; listen without downloading, or save songs with cover and tags. Requires your own `yt-dlp` (see below) |
-| **Module archives** | The Mod Archive, Modland, VGMRips and AMP: browse what's popular, new or random, search (also from Search), listen, save to your library or open a MOD/XM in the tracker. No account needed |
+---
 
-Remote songs are cached on the SD card (400 MB by default, least recently used goes first) and the next track is fetched ahead of time.
+### Cách 2: Cài đặt qua PortMaster (Anbernic, ArkOS, ROCKNIX, EmuELEC)
 
-<p align="center">
-  <img src="site/img/search-youtube.png" alt="Search with YouTube results" width="360">
-  <img src="site/img/radio.png" alt="Internet radio" width="360">
-  <img src="site/img/audiobook.png" alt="An audiobook playing: a book icon, a cassette and the current chapter" width="360">
-</p>
+1. Tải file `audiofilus-portmaster.zip` từ mục Releases.
+2. Giải nén vào thư mục `ports/` trên thẻ nhớ:
+   - File `Audiofilus.sh` nằm trong thư mục `ports/`.
+   - Thư mục `audiofilus/` chứa toàn bộ dữ liệu nằm trong `ports/audiofilus/`.
+3. Khởi động lại máy hoặc cập nhật danh sách Ports, sau đó khởi chạy Audiofilus.
 
-### Visualizers and games
+---
 
-Nine visualizers that follow the beat: **Lake, Drift, Trench, Plasma, Tunnel, Waves, Bars, Ridges** (stacked spectrum lines, like the *Unknown Pleasures* cover) and **MilkDrop**, which plays classic MilkDrop 1 `.milk` presets: eight built in, plus your own in a `milkdrop` folder, in their own colors or the album's ([docs/milkdrop.md](docs/milkdrop.md)). The Visualizer screen remembers the last one you watched, and any of them can also play dimmed **behind Now Playing** (START → *Visualizer background*, always in the album's colors; off by default to save battery). Plus eight arcade games and a tracker, together under **Games** in the screens dock (and a few secrets hidden around the app):
+### Cách 3: Chạy trên máy tính (Windows & Linux Desktop)
 
-- **Crypt**: a rhythm roguelike. Step, fight and dive deeper through random dungeons, but only on the beat of the song that's playing; enemies move to it too. On-beat streaks raise a multiplier up to FEVER ×4.
-- **Blocks**: falling blocks, with hard drops on the beat for combos.
-- **Rhythm**: notes generated from the song that's playing.
-- **Runner**: like Chrome's offline dinosaur, but on the beat. Speakers arrive on the kick and flying vinyls on the snare; hold to jump higher, duck under the records, and jump on the "and" for a PERFECT. One hit and it's over.
-- **Name that song**: a few seconds of a song from your library, four choices, ten rounds.
-- **Snake**: steps on the song's beat subdivisions, so every song plays at its own speed.
-- **Ships**: a shooter that fires on every eighth note and spreads on the bass.
-- **Duel**: turn-based battles to the beat. Strike near the center of the bar, which lands right on the beat, then dodge the notes a scratched vinyl, a tangled tape and a metronome throw at you: they surge on every beat, and the song's snares and cymbals send more.
-- **Tracker**: make chiptune with the D-pad, LSDJ style with a touch of PICO-8: songs built from chains and phrases, instruments with envelopes, tables and vibrato, grooves with swing, editable waves (the eight PICO-8 ones to start), 21 effect commands and a piano roll. Two modes per song: **Game Boy** (four channels modeled on its sound chip) or **Free** (eight channels with synths). Undo, copy, paste and clone, and four examples to learn from. **Import** MOD and XM modules (with their samples) and LSDJ songs (`.lsdsng` or a whole `.sav`); **export** as WAV, XM or MOD straight into your library. **MIDI**: play and step-record from a USB MIDI keyboard, and follow or send MIDI clock (Linux handhelds and desktop, Windows, iOS). Old songs open converted.
+#### Windows (10 / 11)
+1. Tải file `audiofilus-windows-amd64.zip`.
+2. Giải nén vào một thư mục bất kỳ.
+3. Chạy `audiofilus.exe`. Toàn bộ thư viện giải mã âm thanh (MP3, FLAC, AAC, Opus, WMA, Chiptune) đã được đóng gói sẵn trong file zip.
+4. *(Tùy chọn cho YouTube Music)* Tải `yt-dlp.exe` đặt vào thư mục `yt-dlp/` cạnh file `audiofilus.exe`.
 
-<p align="center">
-  <img src="site/img/vis-drift.webp" alt="Drift" width="320">
-  <img src="site/img/vis-trench.webp" alt="Trench" width="320">
-  <img src="site/img/vis-ridges.webp" alt="Ridges" width="320">
-</p>
-
-### MilkDrop
-
-The **MilkDrop** visualizer plays MilkDrop 1 presets (`.milk`), the classic Winamp visuals, drawn on the GPU with Kage shaders, on the handhelds too.
-
-- **Open it:** SELECT → **Visualizer**, then ←/→ until **MilkDrop** (it's the last one: one ← from the first), or pick it from the START menu.
-- **Controls:** L1/R1 change preset, A locks the current one, START opens the menu (colors, next, previous, random, lock, rescan). On its own it moves to the next preset every 20 seconds or so, on a beat, with a two-second blend.
-- **Colors:** START → *Colors* switches between *Preset*, each preset as its author made it, and *Album*, repainted with the colors of the album that's playing.
-- **Your presets:** eight original presets are built in. Put your own `.milk` files (whole packs with subfolders are fine) in a `milkdrop` folder next to the app (or any folder you pick in Settings → *MilkDrop presets*), then START → *Rescan presets*. MilkDrop 2 presets load, but their shaders are ignored.
-
-<p align="center">
-  <img src="site/img/vis-milkdrop.webp" alt="MilkDrop" width="320">
-</p>
-
-More in [docs/milkdrop.md](docs/milkdrop.md).
-<p align="center">
-  <img src="site/img/crypt.webp" alt="Crypt" width="320">
-  <img src="site/img/runner.webp" alt="Runner" width="320">
-  <img src="site/img/duel.webp" alt="Duel" width="320">
-</p>
-<p align="center">
-  <img src="site/img/blocks.webp" alt="Blocks" width="320">
-  <img src="site/img/rhythm.webp" alt="Rhythm" width="320">
-  <img src="site/img/snake.webp" alt="Snake" width="320">
-</p>
-
-### Interface
-
-- `SELECT` opens a dock with every screen; double `SELECT` returns to the previous one. `START` opens the More menu.
-- Hold `FN` on any screen to see its controls.
-- Mouse and touch: tap rows, covers, tabs, menus and the player's buttons; drag lists with your finger (with momentum) or use the wheel; long-press for the More menu, right-click to go back; even the button hints at the bottom can be tapped.
-- The left analog stick works like the D-pad everywhere, menus and games included.
-- On Now Playing, `↑`/`↓` scratch the vinyl, and the song itself scratches back and forth like a record under your hand.
-- The layout follows the screen's real shape: any width from 1:1 to 21:9 in landscape, and portrait (phone-like, down to 9:21) with its own Now Playing layout.
-- Optional chiptune sounds, with separate switches for menus and for music actions. Game sounds are low thumps and soft hits, made to sit under any music, metal included.
-- 13 languages: English, Spanish, Portuguese, French, Italian, German, Polish, Turkish (thanks to volkybaba), Russian, Indonesian, Japanese, Chinese and Korean. Japanese, Chinese and Korean text (song titles too) shows in a pixel font, Fusion Pixel. 12 h (AM/PM) or 24 h clock.
-- **Color:** each album's colors, or a fixed color to match your console's shell (red, orange, yellow, green, ice blue, blue, purple, pink, pearl pink, white, platinum, graphite or black).
-- With a station or a podcast playing, `B` on Now Playing goes back to Radio or Podcasts instead of the library.
-- On desktop: fullscreen with sharp pixels.
-
-<p align="center">
-  <img src="site/img/guide.png" alt="Controls guide" width="360">
-  <img src="site/img/width-16x9.png" alt="16:9 layout" width="427">
-</p>
-
-### Game mode (Knulli Scarab)
-
-On **Knulli Scarab** (for now the only system and version it is built and tested for), **tap FN three times** to turn Audiofilus into a game launcher that replaces EmulationStation, while the music keeps playing (L1/R1 change songs, Y pauses). Tap FN three times again to go back to the player.
-
-- **Systems** in a carousel of 3D console models (turn them with the right stick), grouped and hidden as EmulationStation has them, plus Favorites, Last played and Most played.
-- **Games** with their box art, logos, video previews (full screen too) and screenshots, search, and a random pick.
-- **Continue** from a save state, with its screenshot, before launching a RetroArch game; per-game and per-system **options** (emulator, core, ratio, shaders...) written to `knulli.conf` like EmulationStation does.
-- **Wi-Fi and Bluetooth** from the System screen.
-- While a game runs, Syncthing pauses and the game gets a higher priority; everything is restored when you come back. Knulli's own sleep and battery saver keep working ([docs/knulli.md](docs/knulli.md)).
-
-### Linux desktop
-
-On a Linux PC it fits in like a native app, on GNOME, KDE, Hyprland or [Omarchy](https://omarchy.org):
-
-- **App launcher:** Audiofilus shows up with its icon, with Play/Pause, Next and Previous actions.
-- **Open with:** files and folders open from the file manager ("Open with Audiofilus") and play as a temporary queue; also on Windows (registered on first launch) and from the Files app on iPhone.
-- **Window:** its class is `audiofilus`, so docks group it and window rules can target it.
-- **Media keys and bars:** it speaks MPRIS, so keyboard media keys, headphone buttons and the desktop's media widget control it, with cover and title. On Omarchy that works with nothing to set up.
-- **System tray** (also on Windows): the Audiofilus CD sits in the tray while the music plays in the background: click to open the player, middle click to pause, and a menu with what's playing, play/pause, next, previous, shuffle and quit.
-- **Closing the window keeps the music playing** (a setting, on by default on the desktop); Quit stops everything.
-
-Details in [docs/linux-desktop.md](docs/linux-desktop.md).
-
-### iPhone and iPad
-
-The same player on iOS, touch first: every row, cover, tab and button is tappable, lists scroll under your thumb with momentum, the bottom bar has real buttons, the games have touch controls, and in portrait the tabs open from a button.
-
-- Background playback, with the cover and controls on the lock screen, in Control Center, on headphones and in CarPlay.
-- Music from the Files app (*On My iPhone → Audiofilus*), any folder picked from iCloud Drive or another app, or none at all: Subsonic, Navidrome, Jellyfin, radio, podcasts and YouTube Music work without local music.
-- AAC from iTunes and AAC radio play through Apple's own decoder.
-
-<p align="center">
-  <img src="site/img/phone-player.png" alt="Now Playing on an iPhone" width="200">
-  <img src="site/img/phone-library.png" alt="The library on an iPhone" width="200">
-  <img src="site/img/phone-tabs.webp" alt="Library tabs dropping down" width="200">
-</p>
-
-## Install
-
-### Handhelds (PortMaster)
-
-1. Open PortMaster on your handheld, find **Audiofilus** in the list and install it ([its page](https://portmaster.games/detail.html?name=audiofilus)). Or download `audiofilus-portmaster.zip` from the [latest release](https://github.com/juanvillacortac/audiofilus/releases/latest) and unzip it into your `ports` folder.
-2. Open **Audiofilus** from Ports and pick your music folder.
-
-Settings (`audiofilus.json`) and state (`data/`) live next to the binary.
-
-**On muOS, without PortMaster:** download `audiofilus.muxapp`, copy it to the `ARCHIVE` folder on your SD card, and install it from muOS's Archive Manager. Audiofilus then shows up in **Applications**.
-
-**YouTube Music** shows up only if there is a `yt-dlp` binary in the app's `yt-dlp/` folder (or on `PATH`). Audiofilus doesn't ship or download it; get the `yt-dlp_linux_aarch64` build from the [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases) for handhelds. Songs that need a signed-in account (age-restricted) are played from another upload of the same song when there is one. If YouTube asks your network to confirm it's not a bot, or you want signed-in access, put a `cookies.txt` exported from your browser in that `yt-dlp/` folder ([how](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)).
-
-### Linux desktop
-
+#### Linux Desktop
 ```sh
-curl -fsSL https://juanvillacortac.github.io/audiofilus/install.sh | sh
-```
-
-It downloads the latest release for x86_64 or aarch64 into `~/.local/share/audiofilus`, links `audiofilus` into `~/.local/bin`, and adds Audiofilus to the app launcher. Run it again to update; settings are kept. To uninstall:
-
-```sh
-audiofilus quit; audiofilus desktop uninstall
-rm -rf ~/.local/share/audiofilus ~/.local/bin/audiofilus
-```
-
-Or by hand: grab `audiofilus-linux-amd64.tar.gz` (or `-arm64`), unzip it anywhere, run `./audiofilus desktop install` once and open it from the launcher.
-
-### iPhone and iPad
-
-Every release has an unsigned `audiofilus-ios-unsigned.ipa`. Install it with [Sideloadly](https://sideloadly.io) or [AltStore](https://altstore.io), which sign it with your own Apple ID. Details in [docs/ios.md](docs/ios.md).
-
-**AltStore, SideStore or LiveContainer source:** add `https://juanvillacortac.github.io/audiofilus/altstore.json` as a source and every new release shows up as an update.
-
-### Windows
-
-On Windows 10 or later, grab `audiofilus-windows-amd64.zip`, unzip it anywhere and run `audiofilus.exe`. Everything plays out of the box, AAC/M4A, Opus, tracker modules, console music and AAC/HLS radio included: the zip carries the decoder DLLs next to the `.exe` (mpg123, opusfile, libxmp and libgme from MSYS2, and fdk-aac and a cut-down FFmpeg for WMA built with zig; their licenses are in `licenses/`). For YouTube Music, put `yt-dlp.exe` in a `yt-dlp` folder next to it, and `ffmpeg.exe` on `PATH` to convert downloads to MP3.
-
-## Build
-
-With Docker, nothing else needed:
-
-```sh
-docker build --target dist --output dist .
-```
-
-Or with Go (see `go.mod` for the version; the desktop build needs the X11, OpenGL and ALSA headers, e.g. `libgl1-mesa-dev xorg-dev libasound2-dev`):
-
-```sh
+# Biên dịch và chạy trực tiếp
 ./build.sh
+./dist/audiofilus
+```
+Trên Linux Desktop, ứng dụng tự động tích hợp phím Media, biểu tượng khay hệ thống (System Tray) và giao thức điều khiển MPRIS.
+
+---
+
+## 🔑 Hướng dẫn cấu hình Spotify (Từng bước chi tiết)
+
+Để trải nghiệm tính năng Spotify trên Audiofilus:
+
+1. **Tạo Spotify Developer App (Miễn phí)**:
+   - Truy cập **[developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)** và đăng nhập tài khoản Spotify của bạn.
+   - Bấm **"Create App"**:
+     - *App name*: Nhập `Audiofilus` (hoặc tên tùy thích).
+     - *App description*: `Retro Music Player`.
+   - Tại mục **Redirect URIs**, nhấn **Add** và điền chính xác 2 đường link sau:
+     ```text
+     http://127.0.0.1:8888/callback
+     http://127.0.0.1/callback
+     ```
+   - Chọn mục **Web API** và **Web Playback SDK**, đánh dấu đồng ý điều khoản rồi bấm **Save**.
+   - Vào mục **Settings** của App vừa tạo, bạn sẽ thấy **Client ID** (và nút *View client secret*).
+
+2. **Đăng nhập trên máy chơi game**:
+   - Mở Audiofilus trên máy chơi game, chuyển sang tab **Spotify** (biểu tượng ♫ hoặc chọn từ thanh dock `SELECT`).
+   - Nhấn nút xác nhận (`A` hoặc `B` tùy hệ máy) để hiển thị **Mã QR đăng nhập**.
+   - Dùng điện thoại hoặc máy tính cùng mạng Wi-Fi quét mã QR để mở trang web cổng đăng nhập (ví dụ: `http://192.168.1.15:8888/`).
+
+3. **Cổng Web Pixel Art**:
+   - **Bước 1**: Dán **Client ID** (và Client Secret) từ trang Spotify Developer vào ô nhập trên web -> Bấm `[ 💾 LƯU CẤU HÌNH ]`.
+   - **Bước 2**: Nhấn nút `[ ▶ 1. MỞ TRANG SPOTIFY (TAB MỚI) ◀ ]`. Đăng nhập tài khoản Spotify của bạn và nhấn **"Đồng ý" (Agree)**.
+   - **Bước 3**: Sau khi nhấn Agree, tab mới sẽ hiển thị trang báo lỗi kết nối (vì điện thoại không mở cổng 8888). Hãy **sao chép toàn bộ đường link trên thanh địa chỉ** của tab đó (có dạng `http://127.0.0.1:8888/callback?code=...`) rồi dán vào ô ở Bước 3 -> Nhấn nút `[ ★ 2. XÁC NHẬN MÃ & KẾT NỐI ★ ]`.
+   - Trang web sẽ hiển thị thông báo thành công `★ SPOTIFY CONNECTED ★`. Bạn có thể đóng tab và thưởng thức âm nhạc ngay trên máy chơi game!
+
+---
+
+## 🛠️ Biên dịch từ mã nguồn / Building from Source
+
+Yêu cầu: Đã cài đặt **Go 1.24+**. Quá trình biên dịch cho máy cầm tay **không sử dụng cgo** (`CGO_ENABLED=0`), giúp binary cực kỳ nhẹ và tương thích tốt trên mọi bản phân phối Linux ARM64.
+
+### Biên dịch nhị phân Linux ARM64 (Knulli, muOS, PortMaster):
+```bash
+# Biên dịch binary aarch64 tối ưu hóa kích thước
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/juanvillacortac/audiofilus/internal/version.Version=dev" -o dist/audiofilus.aarch64 ./cmd/audiofilus
 ```
 
-Both leave in `dist/`:
+### Đóng gói file cài đặt PortMaster:
+```bash
+go run ./tools/pack_port
+# File nén zip hoàn chỉnh sẽ được tạo tại dist/audiofilus-portmaster.zip
+```
 
-| File | What it is |
+### Chạy kiểm thử toàn bộ dự án:
+```bash
+# Kiểm tra định dạng mã nguồn
+gofmt -l .
+
+# Chạy kiểm thử tĩnh
+GOOS=windows go vet ./...
+go vet ./...
+
+# Chạy bộ unit test
+go test ./...
+```
+
+---
+
+## 🎮 Phím điều khiển cơ bản / Controls
+
+| Thao tác | Nút bấm |
 |---|---|
-| `audiofilus-amd64`, `audiofilus-arm64` | Everything in one binary: the player (run it with no arguments), the audio service (`audiofilus daemon`, which the player starts itself) and the CLI |
-| `audiofilus-windows-amd64.exe` | The same for Windows |
-| `audiofilus.zip` | The PortMaster port |
+| **Xem Dock chuyển màn hình** | `SELECT` |
+| **Menu tác vụ bổ sung (More)** | `START` |
+| **Phát / Tạm dừng** | `Y` (hoặc `X` tùy layout) / `FN` shortcut |
+| **Chuyển bài kế tiếp** | `R1` |
+| **Quay lại bài trước** | `L1` |
+| **Tua nhanh / Tua lùi** | Giữ `←` / `→` (hoặc phím Triggers `L2` / `R2`) |
+| **Chế độ màn hình tối (Pocket Mode)** | Nhấn đúp `START` hoặc bấm nút Nguồn |
+| **Chà đĩa vinyl (Scratch)** | `↑` / `↓` trên màn hình Now Playing |
+| **Xem bảng trợ giúp phím** | Giữ nút `FN` |
 
-The handheld builds use no cgo. SDL2, mpg123, fdk-aac, opusfile, libxmp and the FFmpeg layer for WMA (`libavshim`) are loaded at runtime with [purego](https://github.com/ebitengine/purego) when the system has them. The interface uses [a fork of Ebitengine](https://github.com/juanvillacortac/ebiten) with an SDL2 backend.
+---
 
-### CLI
+## 📜 Giấy phép & Bản quyền / License
 
-```sh
-dist/audiofilus play ~/Music          # starts the service and plays
-dist/audiofilus status
-dist/audiofilus next | prev | toggle | seek +30 | shuffle on | repeat all
-dist/audiofilus speed 1.5 | crossfeed medium | alarm set '{"on":true,"hour":7,"min":30,"days":[1,2,3,4,5]}'
-dist/audiofilus quit
-```
+Dự án phát hành dưới giấy phép mã nguồn mở **[MIT License](LICENSE)**.
 
-### Tests
-
-```sh
-go vet ./... && go test ./...
-```
-
-Releases are built by GitHub Actions when a `v*` tag is pushed.
-
-## Roadmap
-
-- **Handhelds:** an OpenGL ES 2.0 path for devices without GLES 3 (for now it needs OpenGL ES 3.2).
-- **Desktop:** Windows system media controls, layouts made for big windows.
-- **iOS:** a signed build.
-- **Android:** the same mobile app (the `mobile/` package already builds for it with ebitenmobile).
-
-## License
-
-[MIT](LICENSE). The bundled fonts, Jersey 10, Tiny5 and Fusion Pixel, are under the SIL Open Font License (`internal/ui/assets/fonts/OFL-*.txt`). The AY chip emulation follows [ayumi](https://github.com/true-grue/ayumi) and the PT3 player is a port of [pt3player](https://github.com/Volutar/pt3player), both MIT (`internal/chip/LICENSE.*`). The packages also ship two libraries loaded at runtime, each under its own license: libgme (LGPL) and libvgmshim, built from [libvgm](https://github.com/ValleyBell/libvgm) plus `tools/libvgm/shim.cpp`, which as a whole is **GPL-2.0** (`tools/libvgm/GPL-2.0.txt`; the list of each source file's license and the exact libvgm commit go in `licenses/` of every package). Audiofilus itself stays MIT and doesn't link them at build time.
-
-## Docs
-
-How it works, platform details and power measurements are in [docs/](docs/README.md).
+- **Bản quyền gốc (Original Work)**: © Juan Villacorta ([juanvillacortac/audiofilus](https://github.com/juanvillacortac/audiofilus)).
+- **Bản fork cộng đồng (Community Fork)**: © Lehoangf ([Lehoangf/audiofilus](https://github.com/Lehoangf/audiofilus)).
+- Các bộ font chữ đi kèm:
+  - `Jersey 10`, `Tiny5`, `Fusion Pixel` theo giấy phép SIL Open Font License (`OFL-*.txt`).
+  - Các font chữ Việt hóa thuộc bản quyền của các tác giả tương ứng và được sử dụng cho mục đích phi thương mại.
+- Các thư viện giải mã độc lập: `libgme` (LGPL), `libvgm` (GPL-2.0) được tải động tại runtime qua `purego`, đảm bảo mã nguồn Audiofilus luôn tuân thủ giấy phép MIT thuần túy.

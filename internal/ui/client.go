@@ -206,6 +206,13 @@ func (c *Client) startDaemon() error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("starting the audio service: %v: %s", err, out)
 	}
+	for i := 0; i < 100; i++ {
+		if _, err := control.Call(c.paths.Socket, control.Request{Cmd: "status"}); err == nil {
+			log.Print("audio service started")
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	log.Print("audio service started")
 	return nil
 }
@@ -308,6 +315,18 @@ func (c *Client) Send(cmd string, args ...string) {
 	case c.cmds <- control.Request{Cmd: cmd, Args: args}:
 	default:
 	}
+}
+
+// CallJSON envía una petición directa al servicio por el socket y decodifica la respuesta JSON en target.
+func (c *Client) CallJSON(target any, cmd string, args ...string) error {
+	resp, err := control.Call(c.paths.Socket, control.Request{Cmd: cmd, Args: args})
+	if err != nil {
+		return err
+	}
+	if len(resp.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(resp.Data, target)
 }
 
 // Status devuelve el último estado conocido, con la posición adelantada por el

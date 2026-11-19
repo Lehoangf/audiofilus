@@ -1,3 +1,7 @@
+// Background updates: on launch (at most once daily), the app checks GitHub
+// releases for updates. When a newer version is available, a notification is
+// shown, and Settings -> Update allows installing it by pressing A: downloads
+// the package, verifies SHA256, swaps files atomically, and restarts.
 package ui
 
 import (
@@ -17,45 +21,34 @@ import (
 	"github.com/juanvillacortac/audiofilus/internal/version"
 )
 
-// Las actualizaciones: al abrir la app (como mucho una vez al día) se mira en
-// las releases de GitHub si hay una versión nueva; si la hay, se avisa una
-// vez, y en Ajustes → Actualizar se instala con A: baja el paquete de esta
-// instalación, comprueba su SHA256, cambia los archivos y reinicia el
-// servicio y la interfaz (la música sigue donde iba). En la app de Android de
-// GitHub, igual pero con el APK, que instala el sistema (InstallPackage); en
-// iOS y en la de Google Play no: allí actualiza AltStore o la tienda.
-
-// InstallPackage, si está (la app de Android de GitHub), le pasa al sistema
-// el APK bajado para que lo instale; UpdateDir es dónde se baja.
+// InstallPackage passes downloaded APK to system package manager on Android.
 var (
 	InstallPackage func(path string)
 	UpdateDir      string
 )
 
-// updateState es lo que se sabe de las actualizaciones.
+// updateState holds state for in-app updates.
 type updateState struct {
-	exe      string
-	kind     update.Kind
-	started  bool
-	checking bool
-	latest   *update.Release // la última release (si ya se miró)
-	err      string
-	done     chan updateResult
-	// La instalación: bajando (done/total en bytes, desde la goroutine).
-	installing     bool
-	dlDone, dlSize atomic.Int64
+	exe        string
+	kind       update.Kind
+	started    bool
+	checking   bool
+	latest     *update.Release
+	err        string
+	done       chan updateResult
+	installing bool
+	dlDone     atomic.Int64
+	dlSize     atomic.Int64
 }
 
-// updateResult es lo que devuelve la goroutine: una release mirada o una
-// instalación terminada.
+// updateResult is returned by the update check / download goroutine.
 type updateResult struct {
 	rel       *update.Release
 	installed bool
 	err       error
 }
 
-// updateFile guarda cuándo se miró por última vez y de qué versión ya se
-// avisó (data/update.json).
+// updateFile tracks last check time and notified release tag (data/update.json).
 type updateFile struct {
 	Checked  time.Time `json:"checked"`
 	Notified string    `json:"notified,omitempty"`
@@ -78,9 +71,7 @@ func (a *App) saveUpdateFile(f updateFile) {
 	}
 }
 
-// canUpdate dice si esta instalación se actualiza sola: no en el móvil, ni
-// sin versión (go run, compilaciones a mano), ni si no se sabe cómo se
-// instaló.
+// canUpdate returns whether self-updating is supported for this install.
 func (a *App) canUpdate() bool {
 	u := &a.upd
 	if !u.started {
@@ -99,10 +90,10 @@ func (a *App) canUpdate() bool {
 	return u.kind != update.None
 }
 
-// apkPath es dónde se baja el APK de la app de Android.
+// apkPath returns destination path for Android APK downloads.
 func apkPath() string { return filepath.Join(UpdateDir, update.APK) }
 
-// checkUpdate mira la última release en segundo plano.
+// checkUpdate queries GitHub releases for the latest version in background.
 func (a *App) checkUpdate() {
 	u := &a.upd
 	if u.checking || u.installing {
@@ -116,8 +107,7 @@ func (a *App) checkUpdate() {
 	}(u.done)
 }
 
-// pollUpdate atiende las actualizaciones en cada fotograma: la consulta del
-// día al arrancar (pasado el splash) y lo que vuelve de las goroutines.
+// pollUpdate handles periodic update checks and goroutine completions.
 func (a *App) pollUpdate() {
 	if a.splashing || !a.canUpdate() {
 		return
@@ -152,13 +142,12 @@ func (a *App) pollUpdate() {
 	}
 }
 
-// updateAvailable dice si hay una versión nueva ya mirada.
+// updateAvailable returns true if a newer version has been discovered.
 func (a *App) updateAvailable() bool {
 	return a.upd.latest != nil && update.Newer(version.Version, a.upd.latest.Tag)
 }
 
-// pressUpdate es A en la baldosa: mira si no se sabe nada; si hay versión
-// nueva, la instala.
+// pressUpdate initiates update check or triggers installation.
 func (a *App) pressUpdate() {
 	u := &a.upd
 	switch {
@@ -189,9 +178,7 @@ func (a *App) pressUpdate() {
 	}
 }
 
-// finishUpdate cierra una instalación: con error, avisa; si fue bien,
-// reinicia el servicio (que sigue donde iba) y la interfaz, ya con el
-// binario nuevo.
+// finishUpdate handles completion of update download and installation.
 func (a *App) finishUpdate(err error) {
 	u := &a.upd
 	u.installing = false
@@ -202,7 +189,6 @@ func (a *App) finishUpdate(err error) {
 		return
 	}
 	if a.mobile() {
-		// El sistema pide confirmar y cambia la app (y la reabre).
 		log.Printf("update: %s downloaded; handing it to the installer", u.latest.Tag)
 		a.flash(T("upd_confirm", u.latest.Tag))
 		InstallPackage(apkPath())
@@ -210,14 +196,14 @@ func (a *App) finishUpdate(err error) {
 	}
 	log.Printf("updated to %s; restarting", u.latest.Tag)
 	a.send("restart")
-	time.Sleep(300 * time.Millisecond) // que el servicio reciba el pedido antes de irnos
+	time.Sleep(300 * time.Millisecond) // Allow service to process restart before UI exits
 	if err := proc.Reexec(); err != nil {
 		u.err = err.Error()
 		a.flash(T("upd_restart", u.latest.Tag))
 	}
 }
 
-// updateValue es lo que dice la baldosa.
+// updateValue returns the label string displayed on the settings tile.
 func (a *App) updateValue() string {
 	u := &a.upd
 	switch {

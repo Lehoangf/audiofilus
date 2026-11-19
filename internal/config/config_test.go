@@ -24,3 +24,10 @@ func TestWriteJSONConcurrent(t *testing.T) {
 		t.Errorf("temporary files left: %v", left)
 	}
 }
+
+func TestUIConfigVisualizerDefaults(t *testing.T) {
+	var ui UI
+	if ui.NowPlayingViz != "" || ui.ProgressStyle != "" {
+		t.Errorf("expected empty zero values for new config fields, got viz=%q prog=%q", ui.NowPlayingViz, ui.ProgressStyle)
+	}
+}

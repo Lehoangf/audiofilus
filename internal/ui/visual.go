@@ -47,15 +47,18 @@ const (
 	visLake
 	visRidges
 	visMilk
+	visNCS
+	visMatrix
+	visWarp
 	visCount
 )
 
 // visNames son las claves de los nombres de cada visualizador.
-var visNames = [visCount]string{"vis_drift", "vis_bars", "vis_tunnel", "vis_plasma", "vis_waves", "vis_trench", "vis_lake", "vis_ridges", "vis_milk"}
+var visNames = [visCount]string{"vis_drift", "vis_bars", "vis_tunnel", "vis_plasma", "vis_waves", "vis_trench", "vis_lake", "vis_ridges", "vis_milk", "vis_ncs", "vis_matrix", "vis_warp"}
 
 // visIcons son los iconos de cada visualizador (icons.go), en el orden de
 // visNames.
-var visIcons = [visCount]string{"car", "vis_bars", "vis_tunnel", "vis_plasma", "vis_waves", "vis_trench", "vis_lake", "vis_ridges", "vis_milk"}
+var visIcons = [visCount]string{"car", "vis_bars", "vis_tunnel", "vis_plasma", "vis_waves", "vis_trench", "vis_lake", "vis_ridges", "vis_milk", "disc", "blocks", "bolt"}
 
 // visState es la pantalla de visualizadores.
 type visState struct {
@@ -75,6 +78,8 @@ type visState struct {
 	ridgeBatch rectBatch
 	frame      int // para redibujar a 30 fps
 	lastKind   int
+	matrix     *matrixState
+	warp       *warpState
 	milk       *milkState    // MilkDrop (milkdrop.go)
 	milkOut    *ebiten.Image // su último fotograma
 	bg         bool          // se está pintando de fondo del reproductor
@@ -86,6 +91,20 @@ type visState struct {
 func (a *App) setVisualizer(k int) {
 	a.vis.kind, a.vis.switchAt = k, a.t
 	a.cfg.UI.Visualizer = visNames[k][len("vis_"):]
+	a.saveConfig()
+}
+
+// saveVisualVariant guarda la variante o cámara elegida para el visualizador
+// kind en la configuración.
+func (a *App) saveVisualVariant(kind int) {
+	if kind < 0 || kind >= visCount {
+		return
+	}
+	name := visNames[kind][len("vis_"):]
+	if a.cfg.UI.VisualVariants == nil {
+		a.cfg.UI.VisualVariants = make(map[string]int)
+	}
+	a.cfg.UI.VisualVariants[name] = a.vis.variant[kind]
 	a.saveConfig()
 }
 
@@ -117,22 +136,31 @@ func (a *App) updateVisual() {
 		case v.kind == visDrift:
 			if a.drift == nil {
 				a.drift = newDrift()
+				a.drift.cam = v.variant[visDrift]
 			}
 			a.drift.cam = (a.drift.cam + 1) % 3
+			v.variant[v.kind] = a.drift.cam
 		case v.kind == visLake:
 			if a.lake == nil {
 				a.lake = newLake()
+				a.lake.cam = v.variant[visLake]
 			}
 			a.lake.cam = (a.lake.cam + 1) % 3
+			v.variant[v.kind] = a.lake.cam
 		case v.kind == visTrench:
 			if a.trench == nil {
 				a.trench = newTrench()
+				a.trench.cam = v.variant[visTrench]
 			}
 			a.trench.cam = (a.trench.cam + 1) % 3
+			v.variant[v.kind] = a.trench.cam
+		case v.kind == visNCS:
+			v.variant[v.kind] = (v.variant[v.kind] + 1) % 3
 		default:
 			v.variant[v.kind] = (v.variant[v.kind] + 1) % 2
 		}
 		v.switchAt = a.t
+		a.saveVisualVariant(v.kind)
 	case in.Pressed(ActPause):
 		a.send("toggle")
 	case in.Pressed(ActMenu):
@@ -164,16 +192,19 @@ func (a *App) stepVisual() {
 	case visDrift:
 		if a.drift == nil {
 			a.drift = newDrift()
+			a.drift.cam = a.vis.variant[visDrift]
 		}
 		a.stepDrift(1.0 / 60)
 	case visTrench:
 		if a.trench == nil {
 			a.trench = newTrench()
+			a.trench.cam = a.vis.variant[visTrench]
 		}
 		a.stepTrench(1.0 / 60)
 	case visLake:
 		if a.lake == nil {
 			a.lake = newLake()
+			a.lake.cam = a.vis.variant[visLake]
 		}
 		a.stepLake(1.0 / 60)
 	}
@@ -246,6 +277,12 @@ func (a *App) drawVisual(dst *ebiten.Image) {
 		a.drawLakeScene(v.img)
 	case visRidges:
 		a.drawRidges(v.img)
+	case visNCS:
+		a.drawNCS(v.img)
+	case visMatrix:
+		a.drawMatrix(v.img)
+	case visWarp:
+		a.drawWarp(v.img)
 	}
 	// A la paleta (con la trama a media resolución: píxeles gordos) y al
 	// doble a la pantalla.

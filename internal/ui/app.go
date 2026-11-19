@@ -8,6 +8,7 @@ import (
 	"github.com/juanvillacortac/audiofilus/internal/engine"
 	"github.com/juanvillacortac/audiofilus/internal/history"
 	"github.com/juanvillacortac/audiofilus/internal/lyrics"
+	"github.com/juanvillacortac/audiofilus/internal/platform"
 	"github.com/juanvillacortac/audiofilus/internal/podcast"
 	"github.com/juanvillacortac/audiofilus/internal/radio"
 	"github.com/juanvillacortac/audiofilus/internal/remote"
@@ -91,6 +92,7 @@ type App struct {
 	lyr       lyricsView
 	lyrCh     chan lyricsResult
 	lyrFinder *lyrics.Finder
+	miniViz   *ebiten.Image // fondo atenuado del visualizador bajo la mini letra
 
 	mode           mode
 	scan           *Scan
@@ -130,20 +132,21 @@ type App struct {
 	// pantalla (el móvil, con DrawBackdrop): la interfaz no pinta el suyo y
 	// no se nota el borde de la zona segura.
 	ExternalBackdrop bool
-	artSent          string       // la canción cuya portada ya se mandó (sendArt)     // el ratón o el dedo y las zonas tocables (pointer.go)
-	drawer           *tabDrawer   // el desplegable de pestañas abierto (touchui.go)
-	kbEvents         chan kbEvent // lo que llega del teclado del sistema (keyboard.go)
-	kbField          string       // el campo con el teclado del sistema abierto ("" ninguno)
-	promptAccept     bool         // Intro en el teclado del sistema: aceptar el nombre
-	queueScr         scroller     // el desplazamiento de la cola con el dedo
-	runnerDuckY      int          // en Carrera, desde dónde un dedo apoyado agacha
-	settingsScr      scroller     // y el de Ajustes (su posición va en settingsScroll)
-	splashing        bool         // se está mostrando el splash
-	upd              updateState  // las actualizaciones (update.go)
-	mods             modState     // los módulos de la red (modules.go)
-	meta             metaState    // las herramientas de las etiquetas (tagsui.go)
-	cast             castState    // mandar la música a un aparato de la red (castui.go)
-	splashT          float64      // segundos de splash
+	artSent          string        // la canción cuya portada ya se mandó (sendArt)     // el ratón o el dedo y las zonas tocables (pointer.go)
+	drawer           *tabDrawer    // el desplegable de pestañas abierto (touchui.go)
+	kbEvents         chan kbEvent  // lo que llega del teclado del sistema (keyboard.go)
+	kbField          string        // el campo con el teclado del sistema abierto ("" ninguno)
+	promptAccept     bool          // Intro en el teclado del sistema: aceptar el nombre
+	queueScr         scroller      // el desplazamiento de la cola con el dedo
+	runnerDuckY      int           // en Carrera, desde dónde un dedo apoyado agacha
+	settingsScr      scroller      // y el de Ajustes (su posición va en settingsScroll)
+	splashing        bool          // se está mostrando el splash
+	upd              updateState   // las actualizaciones (update.go)
+	mods             modState      // los módulos de la red (modules.go)
+	meta             metaState     // las herramientas de las etiquetas (tagsui.go)
+	cast             castState     // mandar la música a un aparato de la red (castui.go)
+	splashT          float64       // segundos de splash
+	splashCustomImg  *ebiten.Image // imagen personalizada de splash (splash.go)
 
 	// El indicador de volumen: aparece un momento al cambiar. volume es el
 	// volumen en la escala única (0..2: el sistema hasta 1, el refuerzo de la
@@ -172,10 +175,11 @@ type App struct {
 	shownPos float64
 	letter   string // la letra del último salto (L/R en la biblioteca)
 
-	juice   juiceState // las animaciones de la pantalla de reproducción (juice.go)
-	beat    beat       // el ritmo de la canción (meter.go)
-	steady  steadyGrid // su rejilla suave, para los juegos (meter.go)
-	beatHit bool       // en este fotograma hay un golpe
+	juice   juiceState  // las animaciones de la pantalla de reproducción (juice.go)
+	upNext  upNextState // la vista previa de la siguiente canción (upnext.go)
+	beat    beat        // el ritmo de la canción (meter.go)
+	steady  steadyGrid  // su rejilla suave, para los juegos (meter.go)
+	beatHit bool        // en este fotograma hay un golpe
 
 	tetris  *tetris       // Bloques (tetris.go): la partida, que se queda al cambiar de pantalla
 	rhythm  *rhythmGame   // Ritmo (rhythm.go), igual
@@ -201,6 +205,7 @@ type App struct {
 	dock       dockState         // la barra de pantallas (Select)
 	prompt     *promptState      // un nombre que se está escribiendo (playlists.go)
 	yt         ytState           // YouTube Music, si hay yt-dlp (ytmusic.go)
+	ytScr      ytScreenState     // pantalla dedicada de YouTube Music (ytmusic_screen.go)
 	radio      radioState        // la radio por internet (radio.go)
 	pod        podState          // los podcasts (podcasts.go)
 	spot       spotifyState      // Spotify online (spotify.go)
@@ -303,6 +308,9 @@ func NewApp(paths config.Paths, offline bool) (*App, error) {
 		return nil, err
 	}
 	SetLanguage(cfg.Language)
+	if cfg.UI.Font != "" {
+		_ = SetFont(cfg.UI.Font, paths.Base)
+	}
 	if !offline {
 		migrateGameFiles(paths.Data)
 	}
@@ -310,7 +318,7 @@ func NewApp(paths config.Paths, offline bool) (*App, error) {
 		libTab: tabSongs, // Buscar es la primera pestaña, pero se entra por Canciones
 		paths:  paths, cfg: cfg, offline: offline,
 		lyrCh:  make(chan lyricsResult, 4),
-		acctCh: make(chan func(), 4), mpdPasswords: map[string]string{}, mpdSongs: mpdRemoteSongs{},
+		acctCh: make(chan func(), 64), mpdPasswords: map[string]string{}, mpdSongs: mpdRemoteSongs{},
 		covers: newCovers(2), theme: DefaultTheme, battery: -1, now: time.Now(), h: ScreenH,
 		kbEvents: make(chan kbEvent, 64),
 	}
@@ -320,6 +328,14 @@ func NewApp(paths config.Paths, offline bool) (*App, error) {
 		a.input.oneHand = cfg.UI.VerticalControls == "one"
 	}
 	a.vis.kind = visualizerIndex(cfg.UI.Visualizer)
+	if cfg.UI.VisualVariants != nil {
+		for k := 0; k < visCount; k++ {
+			name := visNames[k][len("vis_"):]
+			if val, ok := cfg.UI.VisualVariants[name]; ok {
+				a.vis.variant[k] = val
+			}
+		}
+	}
 	if th, ok := fixedTheme(a.themeColor()); ok {
 		a.theme = th
 	}
@@ -339,17 +355,40 @@ func NewApp(paths config.Paths, offline bool) (*App, error) {
 			return nil, err
 		}
 		// Volver de segundo plano (el servicio ya sonaba) es volver a la
-		// app, no abrirla: sin splash.
+		// app, no abrirla: sin splash (salvo que SplashAlways esté activo).
 		a.splashing = !a.client.WasRunning
+		if cfg.UI.SplashAlways {
+			a.splashing = true
+		}
+		if a.splashing {
+			a.loadSplashImage()
+		}
 	}
 	a.initYT()
 	a.initServers()
 	a.initRadio()
 	a.initPodcasts()
+	a.initSpotify()
 	if !offline && (sfx.Gain(cfg.UI.Sounds) > 0 || sfx.Gain(cfg.UI.UISounds) > 0) {
 		a.startSounds() // la salida de audio se prepara ya, en segundo plano
 	}
 	a.search.row = 1 // el teclado en pantalla empieza en la Q, no en los números
+	if !hasMusicDir(cfg.MusicDirs) {
+		candidates := []string{
+			"/mnt/mmc/Musics",
+			"/mnt/SDCARD/Music",
+			"/mnt/sdcard/Music",
+			"/mnt/mmc/MUOS/music",
+		}
+		for _, c := range candidates {
+			if isDir(c) {
+				cfg.MusicDirs = []string{c}
+				a.cfg.MusicDirs = cfg.MusicDirs
+				a.saveConfig()
+				break
+			}
+		}
+	}
 	if !hasMusicDir(cfg.MusicDirs) {
 		a.firstRun = true
 		a.picker = newPicker("")
@@ -582,7 +621,11 @@ func (a *App) Update() error {
 			a.saveConfig()
 			a.startScan()
 		} else if a.lib != nil && !a.firstRun && a.picker.dir == "" && a.input.Pressed(ActBack) {
+			wasSplash := a.pickFor == pickSplashImg
 			a.mode, a.pickFor = modeMain, pickMusic // salir del explorador sin cambiar nada
+			if wasSplash {
+				a.openSplashMenu()
+			}
 		}
 		return nil
 	}
@@ -591,6 +634,7 @@ func (a *App) Update() error {
 	a.pollCast() // mandando a un aparato: su canción y su posición (castui.go)
 	a.sendArt()
 	a.updateLyricsFetch()
+	a.updateUpNext()
 	a.updateAccounts()
 	a.updateKeyboard()
 	if a.drawer != nil {
@@ -882,10 +926,6 @@ func (a *App) updateMain() {
 		a.updateGames()
 		return
 	}
-	if a.screen == Spotify && a.menu == nil {
-		a.updateSpotify()
-		return
-	}
 	if a.screen == Visual && a.menu == nil {
 		a.updateVisual()
 		return
@@ -902,7 +942,15 @@ func (a *App) updateMain() {
 	// Los que valen en todas las pantallas.
 	switch {
 	case in.Pressed(ActPause):
-		a.send("toggle")
+		if a.screen == NowPlaying && a.playingSong.Path != "" {
+			if a.lyricsOn {
+				a.lyricsOn = false
+			} else {
+				a.openLyrics()
+			}
+		} else {
+			a.send("toggle")
+		}
 	case a.screen == LibraryScreen && a.libTab == tabSearch && !a.tabFocus && a.yt.bin != "" && in.Pressed(ActPrev):
 		a.searchScope(-1) // en Buscar, L y R cambian el filtro
 	case a.screen == LibraryScreen && a.libTab == tabSearch && !a.tabFocus && a.yt.bin != "" && in.Pressed(ActNext):
@@ -935,11 +983,9 @@ func (a *App) updateMain() {
 			a.updateLyrics()
 		case in.Pressed(ActConfirm):
 			a.send("toggle")
-		case in.Pressed(ActShuffle) && a.shuffleTwice():
-			a.playRandomSong() // doble X: una canción al azar de toda la biblioteca
 		case in.Pressed(ActShuffle):
 			a.shuffleBefore = a.status.Shuffle
-			a.send("shuffle", onOffArg(!a.status.Shuffle))
+			a.cycleShuffle()
 		case in.Pressed(ActMenu):
 			a.openNowMenu()
 		case in.Pressed(ActBack):
@@ -971,6 +1017,10 @@ func (a *App) updateMain() {
 		a.updatePodcasts()
 	case Modules:
 		a.updateModules()
+	case Spotify:
+		a.updateSpotify()
+	case YTMusic:
+		a.updateYTMusicScreen()
 	case Settings:
 		if in.Pressed(ActBack) && !a.settingsEdit && !a.settingsQR {
 			a.goBack()
@@ -1074,12 +1124,13 @@ func (a *App) syncStatus() {
 		return
 	}
 	if st.Track.Path == a.lastTrack {
-		// La misma pista, pero una emisora anuncia otra canción (su título
-		// ICY): lo que suena se pone al día sin tratarla como pista nueva.
-		if radio.IsRadio(st.Track.Path) && st.Track.Title != "" &&
-			(st.Track.Title != a.playingSong.Title || st.Track.Artist != a.playingSong.Artist) {
-			a.playingSong.Title, a.playingSong.Artist = st.Track.Title, st.Track.Artist
+		// La misma pista, pero una emisora o Spotify anuncia metadatos reales:
+		// lo que suena se pone al día sin tratarla como pista nueva.
+		if (radio.IsRadio(st.Track.Path) || isSpotifyPath(st.Track.Path)) && st.Track.Title != "" &&
+			(st.Track.Title != a.playingSong.Title || st.Track.Artist != a.playingSong.Artist || st.Track.Album != a.playingSong.Album) {
+			a.playingSong.Title, a.playingSong.Artist, a.playingSong.Album = st.Track.Title, st.Track.Artist, st.Track.Album
 			if a.playing != nil && a.playing.stray && len(a.playing.Songs) > 0 {
+				a.playing.Title, a.playing.Artist = st.Track.Album, st.Track.Artist
 				a.playing.Songs[0] = a.playingSong
 			}
 		}
@@ -1094,10 +1145,11 @@ func (a *App) syncStatus() {
 	a.resetBeat()                          // y el ritmo empieza de cero
 	if a.lastTrack != "" {
 		dir := 1
-		if st.Index < prevIndex {
+		if st.Index < prevIndex && !(st.Repeat == "all" && st.Index == 0 && a.upNext.nextPath == st.Track.Path) {
 			dir = -1
 		}
 		a.juiceTrack(dir)
+		a.upNextOnTrackChange(st.Track.Path, dir)
 	}
 	a.lastTrack = st.Track.Path
 	a.playing = nil
@@ -1167,6 +1219,9 @@ func (a *App) simulatePlaying() {
 	a.isPlaying, a.position, a.duration = true, 64, 231
 	a.status.Shuffle, a.status.Repeat, a.status.Volume = true, "off", 1
 	a.status.Output = "bluetooth"
+	// Salidas de ejemplo, para que se vea la baldosa de la salida de audio.
+	a.status.Outputs = []platform.Output{{ID: "codec", Name: "Audio Codec"}, {ID: "usb-dac", Name: "USB Audio DAC", USB: true}}
+	a.status.OutputID = "usb-dac"
 	a.volume = 1
 	a.themeFor = al
 	root := a.rootView(tabAlbums)
@@ -1507,6 +1562,8 @@ func (a *App) drawScreen(dst *ebiten.Image, s Screen) {
 			a.drawPodcasts(dst)
 		case Spotify:
 			a.drawSpotify(dst)
+		case YTMusic:
+			a.drawYTMusicScreen(dst)
 		case Modules:
 			a.drawModules(dst)
 		case Settings:

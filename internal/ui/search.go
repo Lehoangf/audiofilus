@@ -32,6 +32,7 @@ const (
 	resArtist = iota
 	resAlbum
 	resSong
+	resSpotify
 	resYT  // de YouTube Music (ytmusic.go)
 	resMod // de los sitios de módulos (modules.go)
 )
@@ -45,6 +46,7 @@ type searchResult struct {
 	ar   *Artist
 	al   *Album
 	song Song
+	spot spotifyTrack
 	yt   ytm.Track
 	have bool // de YouTube Music, y probablemente ya está en la biblioteca
 	mod  modsrc.Item
@@ -66,16 +68,26 @@ type searchState struct {
 const (
 	scopeAll = iota
 	scopeLibrary
+	scopeSpotify
 	scopeYT
 	scopeMods
 	scopeCount
 )
 
 // scopeNames son los nombres de los filtros, para la fila de debajo de la caja.
-var scopeNames = [scopeCount]string{"sf_all", "sf_library", "sf_yt", "sf_mods"}
+var scopeNames = [scopeCount]string{"sf_all", "sf_library", "sf_spotify", "sf_yt", "sf_mods"}
 
-// scopeOn dice si un filtro está (YouTube Music, con yt-dlp).
-func (a *App) scopeOn(i int) bool { return i != scopeYT || a.yt.bin != "" }
+// scopeOn dice si un filtro está (Spotify si está logueado, YouTube Music con yt-dlp).
+func (a *App) scopeOn(i int) bool {
+	switch i {
+	case scopeSpotify:
+		return a.spot.loggedIn
+	case scopeYT:
+		return a.yt.bin != ""
+	default:
+		return true
+	}
+}
 
 // searchScope pasa al filtro anterior (-1) o siguiente (1): L1/R1 en Buscar.
 func (a *App) searchScope(d int) {
@@ -98,12 +110,34 @@ func (a *App) searchScope(d int) {
 // los sitios de módulos.
 func (a *App) searchOnline(q string) {
 	s := &a.search
+	if s.scope == scopeAll || s.scope == scopeSpotify {
+		a.spotifySearch(q)
+	}
 	if s.scope == scopeAll || s.scope == scopeYT {
 		a.ytSearch(q)
 	}
 	if s.scope == scopeAll || s.scope == scopeMods {
 		a.modSearchAll(q)
 	}
+}
+
+// spotifyResults convierte los resultados de Spotify para la búsqueda universal.
+func (a *App) spotifyResults(q string) []searchResult {
+	if !a.spot.loggedIn {
+		return nil
+	}
+	var out []searchResult
+	for _, tr := range a.spot.searchRes {
+		_, downloaded := a.isSpotifyTrackDownloaded(tr)
+		out = append(out, searchResult{
+			kind: resSpotify,
+			main: tr.Title,
+			sub:  tr.Artist,
+			spot: tr,
+			have: downloaded,
+		})
+	}
+	return out
 }
 
 // fold pasa s a mayúsculas sin tildes, para comparar.
@@ -200,6 +234,9 @@ func (a *App) updateSearchResults() {
 		if s.scope == scopeAll || s.scope == scopeLibrary {
 			res = a.runSearch(q)
 		}
+		if s.scope == scopeAll || s.scope == scopeSpotify {
+			res = append(res, a.spotifyResults(q)...)
+		}
 		if s.scope == scopeAll || s.scope == scopeYT {
 			res = append(res, a.ytResults(q)...)
 		}
@@ -246,8 +283,12 @@ func (a *App) updateTyping() {
 		s.row = (s.row - 1 + rows) % rows
 	case in.Repeat(ActDown):
 		s.row = (s.row + 1) % rows
+	case in.Pressed(ActLeft) && s.col == 0:
+		// En la primera columna, ◀ sale a las secciones con lo escrito
+		// intacto (B borra letra a letra), como en los resultados.
+		a.tabFocus = true
 	case in.Repeat(ActLeft):
-		s.col = (s.col - 1 + len(oskKeys[s.row])) % len(oskKeys[s.row])
+		s.col = max(0, s.col-1)
 	case in.Repeat(ActRight):
 		s.col = (s.col + 1) % len(oskKeys[s.row])
 	case in.Pressed(ActConfirm):
@@ -296,10 +337,35 @@ func (a *App) searchDone() {
 	}
 }
 
+func (a *App) spotifySearchQueue(target spotifyTrack) ([]spotifyTrack, int) {
+	var tracks []spotifyTrack
+	start := -1
+	for _, sr := range a.search.results {
+		if sr.kind != resSpotify || sr.spot.ID == "" {
+			continue
+		}
+		if sr.spot.ID == target.ID && start < 0 {
+			start = len(tracks)
+		}
+		tracks = append(tracks, sr.spot)
+	}
+	if len(tracks) == 0 || start < 0 {
+		if target.ID == "" {
+			return nil, 0
+		}
+		return []spotifyTrack{target}, 0
+	}
+	return tracks, start
+}
+
 // openResult abre un resultado: el artista, el álbum o la canción (que suena
 // con el resto de su álbum detrás).
 func (a *App) openResult(r searchResult) {
 	switch r.kind {
+	case resSpotify:
+		tracks, start := a.spotifySearchQueue(r.spot)
+		a.playSpotifyTracks(tracks, start)
+		a.addRecentSpotify(r.spot)
 	case resYT:
 		a.ytMenu(r)
 	case resMod:
@@ -321,6 +387,9 @@ func (a *App) openResult(r searchResult) {
 // resultMenu es el menú (Y) de un resultado.
 func (a *App) resultMenu(r searchResult) {
 	switch r.kind {
+	case resSpotify:
+		tracks, start := a.spotifySearchQueue(r.spot)
+		a.spotifyTrackMenu(tracks, start)
 	case resYT:
 		a.ytMenu(r)
 	case resMod:
@@ -371,8 +440,8 @@ func (a *App) drawSearch(dst *ebiten.Image, x, top, w, bottom int) {
 			}
 			label := T(key)
 			tx := fx + 4
-			if i == scopeYT {
-				tx += 11 // el icono de YouTube delante
+			if i == scopeSpotify || i == scopeYT {
+				tx += 11 // el icono de Spotify o YouTube delante
 			}
 			lw := tx - fx + textWidth(label, SmallFace) + 4
 			bg, fg := withAlpha(th.Bg2, 0xc0), th.Dim
@@ -383,7 +452,9 @@ func (a *App) drawSearch(dst *ebiten.Image, x, top, w, bottom int) {
 			if d := i - s.scope; d != 0 {
 				a.tapZone(fx, y-3, lw, 12, func() { a.searchScope(d) })
 			}
-			if i == scopeYT {
+			if i == scopeSpotify {
+				drawIcon(dst, "spotify", fx+3, y-1, spotGreen)
+			} else if i == scopeYT {
 				drawIcon(dst, "ytm", fx+3, y-1, ytRed)
 			}
 			drawText(dst, label, SmallFace, tx, y, fg)
@@ -437,7 +508,7 @@ func (a *App) drawSearch(dst *ebiten.Image, x, top, w, bottom int) {
 	}
 	whole := dst
 	dst = clip
-	icons := [5]string{"user", "disc", "note", "ytm", "tracker"}
+	icons := [6]string{"user", "disc", "note", "spotify", "ytm", "tracker"}
 	for i := 0; i <= rows && first+i < n; i++ {
 		r := s.results[first+i]
 		ry := y + 4 + i*rowH - off
@@ -447,13 +518,15 @@ func (a *App) drawSearch(dst *ebiten.Image, x, top, w, bottom int) {
 			rect(dst, x-3, ry-4, 2, rowH, th.Accent)
 			subCol = th.Accent
 		}
-		// Una raya separa los de YouTube Music de los de la biblioteca.
-		if r.kind >= resYT && (first+i == 0 || s.results[first+i-1].kind != r.kind) {
+		// Una raya separa los de Spotify/YouTube Music de los de la biblioteca.
+		if r.kind >= resSpotify && (first+i == 0 || s.results[first+i-1].kind != r.kind) {
 			rect(dst, x, ry-5, w, 1, withAlpha(th.Accent2, 0x70))
 		}
 		ic := th.Accent
 		if r.kind == resYT {
 			ic = ytRed
+		} else if r.kind == resSpotify {
+			ic = spotGreen
 		}
 		drawIcon(dst, icons[r.kind], x-1, ry-1, ic)
 		mainW := w * 58 / 100
@@ -478,7 +551,7 @@ func (a *App) searchHints() []hint {
 	case a.search.typing && a.pcTyping():
 		return []hint{{"ENTER", T("h_search")}, {"ESC", T("h_back")}}
 	case a.search.typing:
-		return []hint{{"A", T("h_type")}, {"B", T("h_del")}, {"X", T("h_space")}, {"START", T("h_search")}}
+		return []hint{{"A", T("h_type")}, {"B", T("h_del")}, {"X", T("h_space")}, {"START", T("h_search")}, {"<", T("h_back")}}
 	}
 	return []hint{{"A", T("h_open")}, {"START", T("h_more")}, {"L1/R1", T("h_filter")}, {"B", T("h_keys")}}
 }

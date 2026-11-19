@@ -10,6 +10,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/juanvillacortac/audiofilus/internal/engine"
 )
@@ -38,11 +39,12 @@ const (
 	Runner  // Carrera, un corredor al ritmo (runner.go)
 	Modules // los módulos de la red: The Mod Archive, Modland... (modules.go)
 	Spotify // Spotify online (spotify.go)
+	YTMusic // YouTube Music online (ytmusic_screen.go)
 	screenCount
 )
 
 func (s Screen) String() string {
-	return [...]string{"reproduciendo", "biblioteca", "cola", "bloques", "ritmo", "visualizador", "descargas", "radio", "podcasts", "ajustes", "juegos", "cripta", "tracker", "adivina", "serpiente", "naves", "duelo", "carrera", "modulos", "spotify"}[s]
+	return [...]string{"reproduciendo", "biblioteca", "cola", "bloques", "ritmo", "visualizador", "descargas", "radio", "podcasts", "ajustes", "juegos", "cripta", "tracker", "adivina", "serpiente", "naves", "duelo", "carrera", "modulos", "spotify", "ytmusic"}[s]
 }
 
 const (
@@ -238,6 +240,18 @@ func (in *Input) pressName(b ebiten.StandardGamepadButton) string {
 
 // hint es un botón y lo que hace, para la barra de abajo.
 type hint struct{ btn, label string }
+
+// hintsFit dice si las ayudas de botones caben en el ancho w sin salirse.
+func (a *App) hintsFit(w int, hints []hint) bool {
+	if a.input.touch {
+		return true
+	}
+	total := 0
+	for _, hn := range hints {
+		total += btnChipWidth(a.btn(hn.btn)) + 3 + textWidth(hn.label, SmallFace) + 10
+	}
+	return total-10 <= w-8
+}
 
 // drawHints pinta la ayuda de botones, centrada.
 func (a *App) drawHints(dst *ebiten.Image, hints []hint) {
@@ -563,9 +577,29 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 		}
 	}
 
-	// El vinilo asoma por detrás de la portada y gira mientras suena.
-	slide := size * 34 / 100
-	r := size/2 - 3
+	// El vinilo asoma por detrás de la portada y gira mientras suena. Con
+	// "Siguiente" activo, el disco se esconde a la izquierda y la portada
+	// principal encoge para hacer sitio a la portada siguiente.
+	baseSlide := size * 34 / 100
+	baseR := size/2 - 3
+	layout := computeUpNextLayout(cx, cy, size, baseSlide, a.upNext.p, wide)
+	drawX, drawY, drawSize, drawSlide := layout.mainX, layout.mainY, layout.mainSize, layout.slide
+	promoting := false
+	if px, py, psize, pslide, ok := a.upNextPromoteLayout(cx, cy, size, baseSlide); ok {
+		drawX, drawY, drawSize, drawSlide = px, py, psize, pslide
+		promoting = true
+	}
+	nextInfo, hasNext := a.upNextTrack()
+	if hasNext && !promoting && layout.nextSize > 0 && layout.alpha > 0.25 {
+		a.upNext.lastVisible = true
+		a.upNext.lastBoxX = layout.nextX
+		a.upNext.lastBoxY = layout.nextY
+		a.upNext.lastBoxSize = layout.nextSize
+	} else {
+		a.upNext.lastVisible = false
+	}
+
+	r := max(8, drawSize/2-3)
 	a.spin += a.spinSpeed() // el vinilo solo gira mientras suena
 	book := a.isBook(song.Path)
 	if book {
@@ -575,46 +609,60 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 		if a.duration > 0 {
 			progress = a.shownPos / a.duration
 		}
+		cassOff := 0
+		if baseSlide > 0 {
+			cassOff = (r / 3) * drawSlide / baseSlide
+		}
 		// Un poco más afuera que el vinilo: que se vea el carrete de la derecha.
-		drawCassette(dst, cx+size/2+slide+r/3, cy+size/2, r, a.spin, progress, th)
+		drawCassette(dst, drawX+drawSize/2+drawSlide+cassOff, drawY+drawSize/2, r, a.spin, progress, th)
 	} else {
-		drawVinyl(dst, cx+size/2+slide, cy+size/2, r, a.spin, th.Accent)
+		drawVinyl(dst, drawX+drawSize/2+drawSlide, drawY+drawSize/2, r, a.spin, th.Accent)
 	}
 	// La portada entra desde el lado al cambiar de canción, con un destello.
 	ox := a.coverOffset(size)
-	rect(dst, cx+2+ox, cy+2, size, size, th.Shadow)
+	if promoting {
+		ox = 0
+	}
+	rect(dst, drawX+2+ox, drawY+2, drawSize, drawSize, th.Shadow)
 	if book && (al == nil || !al.HasCover()) {
-		drawBookArt(dst, cx+ox, cy, size, th) // sin portada: un librito
+		drawBookArt(dst, drawX+ox, drawY, drawSize, th) // sin portada: un librito
 	} else {
-		a.drawCover(dst, al, cx+ox, cy, size, 1)
+		a.drawCoverScaled(dst, al, drawX+ox, drawY, drawSize, size, 1)
 	}
 	if f := a.coverFlash(); f > 0 {
-		rect(dst, cx+ox, cy, size, size, withAlpha(th.Text, uint8(150*f)))
+		rect(dst, drawX+ox, drawY, drawSize, drawSize, withAlpha(th.Text, uint8(150*f)))
 	}
 	a.prefetchCovers(al, size)
-	frame(dst, cx-1+ox, cy-1, size+2, size+2, withAlpha(th.Text, 0x40))
+	frame(dst, drawX-1+ox, drawY-1, drawSize+2, drawSize+2, withAlpha(th.Text, 0x40))
 	// Lo de YouTube Music que suena sin guardar: su icono en la esquina de
 	// la portada.
 	_, streaming := a.streamTrack()
 	live := radio.IsRadio(song.Path)
 	pod := strings.HasPrefix(song.Path, a.podDir())
+	isSpot := isSpotifyPath(song.Path)
+	if isSpot {
+		streaming = false
+	}
 	switch {
 	case pod:
-		panel(dst, cx+ox+3, cy+size-13, 13, 11, withAlpha(th.Shadow, 0xd0))
-		drawIcon(dst, "mic", cx+ox+6, cy+size-11, th.Accent)
+		panel(dst, drawX+ox+3, drawY+drawSize-13, 13, 11, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "mic", drawX+ox+6, drawY+drawSize-11, th.Accent)
+	case isSpot:
+		panel(dst, drawX+ox+3, drawY+drawSize-13, 15, 10, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "spotify", drawX+ox+4, drawY+drawSize-12, spotGreen)
 	case streaming:
-		panel(dst, cx+ox+3, cy+size-13, 15, 10, withAlpha(th.Shadow, 0xd0))
-		drawIcon(dst, "ytm", cx+ox+6, cy+size-12, ytRed)
+		panel(dst, drawX+ox+3, drawY+drawSize-13, 15, 10, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "ytm", drawX+ox+6, drawY+drawSize-12, ytRed)
 	case live:
-		panel(dst, cx+ox+3, cy+size-13, 13, 11, withAlpha(th.Shadow, 0xd0))
-		drawIcon(dst, "radio", cx+ox+6, cy+size-11, th.Accent)
+		panel(dst, drawX+ox+3, drawY+drawSize-13, 13, 11, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "radio", drawX+ox+6, drawY+drawSize-11, th.Accent)
 	}
 
 	// En las esquinas de arriba de la portada: el corazón si es favorita y
 	// lo que le queda al temporizador.
 	if a.isFavSong(song.Path) {
-		panel(dst, cx+ox+size-15, cy+3, 12, 11, withAlpha(th.Shadow, 0xd0))
-		drawIcon(dst, "heart", cx+ox+size-13, cy+5, th.Accent)
+		panel(dst, drawX+ox+drawSize-15, drawY+3, 12, 11, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "heart", drawX+ox+drawSize-13, drawY+5, th.Accent)
 	}
 	if a.status.TimerLeft > 0 || a.status.StopAfter {
 		// La luna, y los minutos que quedan o una nota (al acabar la canción).
@@ -623,19 +671,22 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 		if a.status.StopAfter {
 			lw = 7
 		}
-		panel(dst, cx+ox+3, cy+3, lw+15, 11, withAlpha(th.Shadow, 0xd0))
-		drawIcon(dst, "moon", cx+ox+5, cy+5, th.Accent)
+		panel(dst, drawX+ox+3, drawY+3, lw+15, 11, withAlpha(th.Shadow, 0xd0))
+		drawIcon(dst, "moon", drawX+ox+5, drawY+5, th.Accent)
 		if a.status.StopAfter {
-			drawIcon(dst, "note", cx+ox+14, cy+5, th.Text)
+			drawIcon(dst, "note", drawX+ox+14, drawY+5, th.Text)
 		} else {
-			drawText(dst, label, SmallFace, cx+ox+14, cy+5, th.Text)
+			drawText(dst, label, SmallFace, drawX+ox+14, drawY+5, th.Text)
 		}
+	}
+	if hasNext && !promoting && layout.alpha > 0.05 {
+		a.drawUpNextArt(dst, layout, nextInfo, size, cy)
 	}
 
 	// Los textos.
 	var tx, tw, ty int
 	if wide {
-		tx = cx + size + slide + r/2 + 12
+		tx = cx + size + baseSlide + baseR/2 + 12
 		tw = w - tx - margin
 		if off > 0 {
 			tw = textW
@@ -650,23 +701,36 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 			state = T("paused")
 		}
 		drawText(dst, state, SmallFace, tx, ty, th.Accent2)
-		if pod {
+		switch {
+		case pod:
 			// Un episodio: "PODCAST" con el micrófono.
 			bx := tx + textWidth(state, SmallFace) + 6
 			label := T("podcast")
 			panel(dst, bx, ty-2, textWidth(label, SmallFace)+16, 10, withAlpha(th.Shadow, 0xb0))
 			drawIcon(dst, "mic", bx+3, ty-2, th.Accent)
 			drawText(dst, label, SmallFace, bx+13, ty, th.Text)
-		}
-		if live {
+		case live:
 			// Una radio: "EN VIVO" con la antena.
 			bx := tx + textWidth(state, SmallFace) + 6
 			label := T("live")
 			panel(dst, bx, ty-2, textWidth(label, SmallFace)+16, 10, withAlpha(th.Shadow, 0xb0))
 			drawIcon(dst, "radio", bx+3, ty-2, th.Accent)
 			drawText(dst, label, SmallFace, bx+13, ty, th.Text)
-		}
-		if streaming {
+		case isSpot:
+			// Spotify: "STREAMING" con el icono verde de Spotify.
+			bx := tx + textWidth(state, SmallFace) + 6
+			label := T("streaming")
+			panel(dst, bx, ty-2, textWidth(label, SmallFace)+16, 10, withAlpha(th.Shadow, 0xb0))
+			drawIcon(dst, "spotify", bx+2, ty-1, spotGreen)
+			drawText(dst, label, SmallFace, bx+13, ty, th.Text)
+			if isSmartTrack(song.Path) {
+				sx := bx + textWidth(label, SmallFace) + 18
+				sLabel := "SMART"
+				panel(dst, sx, ty-2, textWidth(sLabel, SmallFace)+16, 10, withAlpha(th.Shadow, 0xb0))
+				drawIcon(dst, "sparkle", sx+3, ty-1, th.Accent)
+				drawText(dst, sLabel, SmallFace, sx+12, ty, th.Accent)
+			}
+		case streaming:
 			// Y junto al estado, de dónde viene: "STREAMING" con el icono.
 			bx := tx + textWidth(state, SmallFace) + 6
 			label := T("streaming")
@@ -715,7 +779,7 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 		vy0 = max(vy0, cy+size+14)
 	}
 	vy1 := dst.Bounds().Dy() - bottomH - 24
-	a.drawSpectrum(dst, margin, vy0, w-2*margin, vy1-vy0)
+	a.drawNowPlayingBottom(dst, margin, vy0, w-2*margin, vy1-vy0)
 	// Tocar el visualizador abre la letra.
 	a.tapZone(margin, vy0, w-2*margin, vy1-vy0, a.openLyrics)
 	a.drawProgress(dst, margin+a.seekNudge(), vy1+8, w-2*margin)
@@ -725,6 +789,12 @@ func (a *App) drawNowPlaying(dst *ebiten.Image) {
 		// Con el dedo, aleatorio ya está en los controles: el botón de abajo
 		// pone una canción al azar (lo que hace X dos veces).
 		hints[1] = hint{"XX", T("h_random")}
+	}
+	if song.Path != "" {
+		withLyrics := append([]hint{hints[0], {"Y", T("h_lyrics")}}, hints[1:]...)
+		if a.hintsFit(w, withLyrics) {
+			hints = withLyrics
+		}
 	}
 	a.drawHints(dst, hints)
 }
@@ -820,6 +890,9 @@ func (a *App) drawControls(dst *ebiten.Image, x, y int) {
 	if a.status.Shuffle {
 		shuffleCol = th.Accent
 		rect(dst, x+66, y+13, 3, 1, th.Accent) // punto de "activo"
+		if a.status.SpotifySmartShuffle {
+			drawIcon(dst, "sparkle", x+72, y+2, th.Accent)
+		}
 	}
 	drawIcon(dst, "shuffle", x+64, y+4, shuffleCol)
 	if a.status.Repeat == "all" || a.status.Repeat == "one" {
@@ -836,7 +909,7 @@ func (a *App) drawControls(dst *ebiten.Image, x, y int) {
 	a.tapZone(x-3, zy, 21, zh, func() { a.send("prev") })
 	a.tapZone(x+18, zy, 21, zh, func() { a.send("toggle") })
 	a.tapZone(x+39, zy, 21, zh, func() { a.send("next") })
-	a.tapZone(x+60, zy, 18, zh, func() { a.send("shuffle", onOffArg(!a.status.Shuffle)); a.status.Shuffle = !a.status.Shuffle })
+	a.tapZone(x+60, zy, 18, zh, func() { a.cycleShuffle() })
 	a.tapZone(x+78, zy, 18, zh, func() {
 		next := map[string]string{"off": "all", "all": "one", "one": "off"}[orDefault(a.status.Repeat, "off")]
 		a.send("repeat", next)
@@ -847,10 +920,46 @@ func (a *App) drawControls(dst *ebiten.Image, x, y int) {
 	}
 }
 
-// drawSpectrum pinta un visualizador de barras tipo LED. En la maqueta los
-// valores son inventados; en la app saldrán del audio.
+var nowPlayingVizModes = []string{"led", "smooth", "wave", "mirror", "off"}
+
+// nowPlayingViz devuelve el modo de visualizador actual de Reproduciendo ("led" por defecto).
+func (a *App) nowPlayingViz() string {
+	mode := a.cfg.UI.NowPlayingViz
+	for _, m := range nowPlayingVizModes {
+		if m == mode {
+			return mode
+		}
+	}
+	return "led"
+}
+
+// cycleNowPlayingViz pasa al siguiente estilo de visualizador en Reproduciendo.
+func (a *App) cycleNowPlayingViz() {
+	cur := a.nowPlayingViz()
+	next := "led"
+	for i, m := range nowPlayingVizModes {
+		if m == cur {
+			next = nowPlayingVizModes[(i+1)%len(nowPlayingVizModes)]
+			break
+		}
+	}
+	a.cfg.UI.NowPlayingViz = next
+	a.saveConfig()
+}
+
+// nowPlayingVizLabel devuelve el texto legible del estilo actual.
+func (a *App) nowPlayingVizLabel() string {
+	return T("np_viz_" + a.nowPlayingViz())
+}
+
+// drawSpectrum pinta el visualizador de la pantalla Reproduciendo según el estilo elegido
+// (LED, Suave/Continuo, Onda, Espejo o Apagado).
 func (a *App) drawSpectrum(dst *ebiten.Image, x, y, w, h int) {
 	if h < 8 {
+		return
+	}
+	mode := a.nowPlayingViz()
+	if mode == "off" {
 		return
 	}
 	th := a.theme
@@ -887,25 +996,115 @@ func (a *App) drawSpectrum(dst *ebiten.Image, x, y, w, h int) {
 		*bar = math.Max(v, *bar-0.035)
 		peak := &a.vizPeaks[i]
 		*peak = math.Max(*bar, *peak-0.012)
-		lit := int(*bar*float64(blocks) + 0.5)
-		top := int(*peak*float64(blocks) + 0.5)
-		for b := 0; b < blocks; b++ {
-			by := y + h - (b+1)*3
-			c := mix(th.Accent, th.Accent2, float64(b)/float64(blocks))
-			switch {
-			case b < lit:
-			case b == top-1 && top > lit:
-				c = th.Text // la marca del pico
-			default:
-				c = withAlpha(th.Bg2, 0xff)
+
+		switch mode {
+		case "smooth":
+			// Fondo de barra tenue
+			a.batch.add(x+i*(bw+gap), y, bw, h, withAlpha(th.Bg2, 0x60))
+			barH := int(*bar * float64(h))
+			if barH > 0 {
+				by := y + h - barH
+				col := mix(th.Accent, th.Accent2, *bar)
+				a.batch.add(x+i*(bw+gap), by, bw, barH, col)
 			}
-			a.batch.add(x+i*(bw+gap), by, bw, 2, c)
+			peakY := y + h - int(*peak*float64(h)) - 1
+			if peakY >= y && peakY < y+h {
+				a.batch.add(x+i*(bw+gap), peakY, bw, 1, th.Text)
+			}
+		case "mirror":
+			yMid := y + h/2
+			halfH := float64(h) / 2.0
+			topH := int(*bar * halfH)
+			if topH > 0 {
+				a.batch.add(x+i*(bw+gap), yMid-topH, bw, topH, mix(th.Accent, th.Accent2, *bar))
+				downH := int(float64(topH) * 0.7)
+				a.batch.add(x+i*(bw+gap), yMid, bw, downH, mix(th.Accent2, th.Bg2, 0.45))
+			}
+			peakTop := yMid - int(*peak*halfH)
+			peakDown := yMid + int(*peak*halfH*0.7)
+			if peakTop >= y {
+				a.batch.add(x+i*(bw+gap), peakTop, bw, 1, th.Text)
+			}
+			if peakDown < y+h {
+				a.batch.add(x+i*(bw+gap), peakDown, bw, 1, withAlpha(th.Text, 0x90))
+			}
+		case "wave":
+			// Se dibuja abajo con vector.StrokeLine
+		default: // "led"
+			lit := int(*bar*float64(blocks) + 0.5)
+			top := int(*peak*float64(blocks) + 0.5)
+			for b := 0; b < blocks; b++ {
+				by := y + h - (b+1)*3
+				c := mix(th.Accent, th.Accent2, float64(b)/float64(blocks))
+				switch {
+				case b < lit:
+				case b == top-1 && top > lit:
+					c = th.Text // la marca del pico
+				default:
+					c = withAlpha(th.Bg2, 0xff)
+				}
+				a.batch.add(x+i*(bw+gap), by, bw, 2, c)
+			}
 		}
 	}
+
+	if mode == "wave" {
+		yMid := float64(y + h/2)
+		var prevX, prevY, prevY2 float64
+		for i := 0; i < n; i++ {
+			curX := float64(x + i*(bw+gap) + bw/2)
+			curY := yMid - (a.vizBars[i]-0.15)*float64(h)*0.7
+			curY2 := yMid + (a.vizBars[i]-0.15)*float64(h)*0.35
+			if i > 0 {
+				vector.StrokeLine(dst, float32(prevX), float32(prevY), float32(curX), float32(curY), 1.8, th.Accent, false)
+				vector.StrokeLine(dst, float32(prevX), float32(prevY2), float32(curX), float32(curY2), 1.0, withAlpha(th.Accent2, 0x90), false)
+			}
+			prevX, prevY, prevY2 = curX, curY, curY2
+		}
+		rect(dst, x, int(yMid), n*(bw+gap)-gap, 1, withAlpha(th.Bg2, 0x80))
+		return
+	}
+
 	a.batch.draw(dst) // todos los bloques de una vez
 }
 
-// drawProgress pinta los tiempos y la barra de progreso.
+var progressStyles = []string{"classic", "retro", "thin", "pill", "nyancat"}
+
+// progressStyle devuelve el estilo de la barra de progreso ("classic" por defecto).
+func (a *App) progressStyle() string {
+	s := a.cfg.UI.ProgressStyle
+	for _, ps := range progressStyles {
+		if ps == s {
+			return s
+		}
+	}
+	return "classic"
+}
+
+// cycleProgressStyle avanza al siguiente estilo de barra de progreso.
+func (a *App) cycleProgressStyle() {
+	cur := a.progressStyle()
+	next := "classic"
+	for i, s := range progressStyles {
+		if s == cur {
+			next = progressStyles[(i+1)%len(progressStyles)]
+			break
+		}
+	}
+	a.cfg.UI.ProgressStyle = next
+	a.saveConfig()
+}
+
+// progressStyleLabel devuelve el nombre legible del estilo actual.
+func (a *App) progressStyleLabel() string {
+	st := a.progressStyle()
+	if st == "nyancat" {
+		return T("prog_nyan")
+	}
+	return T("prog_" + st)
+}
+
+// drawProgress pinta los tiempos y la barra de progreso según el estilo configurado.
 func (a *App) drawProgress(dst *ebiten.Image, x, y, w int) {
 	th := a.theme
 	if a.duration <= 0 {
@@ -918,10 +1117,43 @@ func (a *App) drawProgress(dst *ebiten.Image, x, y, w int) {
 	drawText(dst, tot, SmallFace, x+w-textWidth(tot, SmallFace), y, th.Dim)
 	bx := x + textWidth(cur, SmallFace) + 6
 	bw := w - (bx - x) - textWidth(tot, SmallFace) - 6
-	rect(dst, bx, y+1, bw, 3, th.Bg2)
-	fill := int(float64(bw) * a.shownPos / math.Max(a.duration, 1))
-	rect(dst, bx, y+1, fill, 3, th.Accent)
-	panel(dst, bx+fill-2, y-1, 5, 7, th.Text)
+	if bw <= 0 {
+		return
+	}
+	progress := a.shownPos / math.Max(a.duration, 1)
+	fill := int(float64(bw) * math.Max(0, math.Min(1, progress)))
+	style := a.progressStyle()
+
+	switch style {
+	case "nyancat":
+		drawNyanCatProgress(dst, bx, y, bw, progress, a.t)
+	case "thin":
+		rect(dst, bx, y+2, bw, 1, th.Bg2)
+		rect(dst, bx, y+2, fill, 1, th.Accent)
+	case "pill":
+		panel(dst, bx, y, bw, 5, th.Bg2)
+		if fill > 0 {
+			panel(dst, bx, y, fill, 5, th.Accent)
+		}
+		panel(dst, bx+fill-2, y-1, 5, 7, th.Text)
+	case "retro":
+		const segW, segGap = 4, 1
+		nSegs := (bw + segGap) / (segW + segGap)
+		litSegs := int(progress * float64(nSegs))
+		for s := 0; s < nSegs; s++ {
+			sx := bx + s*(segW+segGap)
+			c := th.Bg2
+			if s < litSegs {
+				c = th.Accent
+			}
+			rect(dst, sx, y+1, segW, 3, c)
+		}
+	default: // "classic"
+		rect(dst, bx, y+1, bw, 3, th.Bg2)
+		rect(dst, bx, y+1, fill, 3, th.Accent)
+		panel(dst, bx+fill-2, y-1, 5, 7, th.Text)
+	}
+
 	// Tocar la barra salta a ese punto.
 	dur := a.duration
 	a.zone(bx, y-5, bw, 15, func(px, _ int) {

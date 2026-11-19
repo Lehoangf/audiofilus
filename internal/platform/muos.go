@@ -201,13 +201,21 @@ func (m *muos) ExitSleep() error {
 		if m.savedLeds != "" && m.savedLeds != "0" {
 			_ = os.WriteFile(lp, []byte(m.savedLeds), 0o644)
 			m.savedLeds = ""
+		} else {
+			_ = os.WriteFile(lp, []byte("128"), 0o644)
+		}
+		if fileExists(brickDisp) {
+			hwBright := strconv.Itoa(b)
+			for _, w := range [][2]string{{"name", "lcd0"}, {"command", "setbl"}, {"param", hwBright}, {"start", "1"}} {
+				_ = os.WriteFile(filepath.Join(brickDisp, w[0]), []byte(w[1]), 0o644)
+			}
 		}
 		m.screenOff = false
 	}
 	return nil
 }
 
-// fnSwitchWatcher monitoriza el interruptor físico Fn de la TrimUI Brick Pro.
+// fnSwitchWatcher monitors the TrimUI Brick Pro physical Fn switch.
 type fnSwitchWatcher struct {
 	path       string
 	fnCallback func(closed bool)
@@ -222,7 +230,7 @@ func newFnSwitchWatcher(callback func(closed bool)) *fnSwitchWatcher {
 	}
 }
 
-// Run observa cambios en el interruptor Fn aplicando un debounce de 300 ms.
+// Run watches for Fn switch changes with 300ms debounce.
 func (w *fnSwitchWatcher) Run() {
 	if !fileExists(w.path) {
 		return

@@ -113,3 +113,48 @@ func TestCoverOfStrayAlbum(t *testing.T) {
 		t.Fatal("cover never arrived")
 	}
 }
+
+// TestPlaylistIconAndSpotifyURIs comprueba que el icono personalizado y las rutas virtuales de Spotify
+// se guardan en el archivo .m3u8 y se cargan correctamente en la biblioteca.
+func TestPlaylistIconAndSpotifyURIs(t *testing.T) {
+	dir := t.TempDir()
+	plPath := filepath.Join(dir, "TestSpot.m3u8")
+	pl := &Playlist{
+		Name: "TestSpot",
+		Path: plPath,
+		icon: "spotify",
+		Songs: []Song{
+			{Path: "spotify://track/123", Title: "Song 1", Artist: "Artist 1"},
+		},
+	}
+	a := &App{}
+	if err := a.savePlaylist(pl); err != nil {
+		t.Fatalf("savePlaylist failed: %v", err)
+	}
+	b, err := os.ReadFile(plPath)
+	if err != nil {
+		t.Fatalf("read playlist file failed: %v", err)
+	}
+	if !strings.Contains(string(b), "#EXT-AUDIOFILUS-ICON:spotify") {
+		t.Fatalf("expected #EXT-AUDIOFILUS-ICON:spotify in file, got:\n%s", string(b))
+	}
+	if !strings.Contains(string(b), "spotify://track/123") {
+		t.Fatalf("expected spotify://track/123 in file, got:\n%s", string(b))
+	}
+	icon := readPlaylistIcon(plPath)
+	if icon != "spotify" {
+		t.Fatalf("expected icon 'spotify', got %q", icon)
+	}
+
+	lib := &Library{song: map[string]Song{}}
+	lib.addPlaylists([]string{plPath})
+	if len(lib.Playlists) != 1 {
+		t.Fatalf("expected 1 playlist in library, got %d", len(lib.Playlists))
+	}
+	if lib.Playlists[0].icon != "spotify" {
+		t.Fatalf("expected lib playlist icon 'spotify', got %q", lib.Playlists[0].icon)
+	}
+	if len(lib.Playlists[0].Songs) != 1 || lib.Playlists[0].Songs[0].Path != "spotify://track/123" {
+		t.Fatalf("expected 1 spotify song in lib playlist, got %+v", lib.Playlists[0].Songs)
+	}
+}

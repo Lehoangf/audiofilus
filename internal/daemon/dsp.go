@@ -93,6 +93,11 @@ func dspCommand(d engine.DSP, cmd string, args []string) (engine.DSP, error) {
 			return d, errors.New("usage: crossfeed off|light|medium|strong")
 		}
 		d.Crossfeed = strings.TrimPrefix(args[0], "off")
+	case "karaoke":
+		if len(args) != 1 || !slices.Contains(engine.KaraokeLevels, strings.TrimPrefix(args[0], "off")) {
+			return d, errors.New("usage: karaoke off|light|full")
+		}
+		d.Karaoke = strings.TrimPrefix(args[0], "off")
 	case "resampler":
 		if len(args) != 1 || (args[0] != "auto" && args[0] != "linear" && args[0] != "quality") {
 			return d, errors.New("usage: resampler auto|linear|quality")

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -22,8 +23,11 @@ type Config struct {
 	// SampleRate es la frecuencia de salida; toda canción se remuestrea a ella.
 	SampleRate int `json:"sample_rate"`
 	// BufferMS es el búfer de audio. Uno mayor despierta la CPU menos veces.
-	BufferMS int     `json:"buffer_ms"`
-	Volume   float64 `json:"volume"`
+	BufferMS int `json:"buffer_ms"`
+	// AudioOutput es la salida de audio elegida en Ajustes (el ID de
+	// platform.Output); vacía es automático: un DAC USB al conectarlo.
+	AudioOutput string  `json:"audio_output,omitempty"`
+	Volume      float64 `json:"volume"`
 	// Language es el idioma de la interfaz ("es", "en"); vacío lo elige por $LANG.
 	Language string  `json:"language"`
 	Sleep    Sleep   `json:"sleep"`
@@ -41,6 +45,14 @@ type Config struct {
 	// MPD es el servidor del protocolo de MPD (internal/mpd): clientes de
 	// MPD y otros audiofilus controlan este y le mandan música.
 	MPD MPD `json:"mpd,omitzero"`
+	// Spotify configura la cuenta y API de Spotify (internal/spotify).
+	Spotify Spotify `json:"spotify,omitzero"`
+}
+
+// Spotify configura el identificador de cliente para la API de Spotify.
+type Spotify struct {
+	ClientID     string `json:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty"`
 }
 
 // MPD configura el servidor MPD del servicio. Apagado por defecto.
@@ -138,6 +150,8 @@ type UI struct {
 	// cruceta abajo) o "right" (girada a la derecha, la cruceta arriba). La
 	// cruceta, el stick y A/B/X/Y giran con ella (ui.Input.rot).
 	Orientation string `json:"orientation,omitempty"`
+	// Font es la fuente de la interfaz ("" para la estándar de píxeles, "dearpix" o el nombre de una fuente).
+	Font string `json:"font,omitempty"`
 	// VerticalControls es cómo se maneja en vertical: "" (con las dos manos,
 	// cada grupo de botones gira en su sitio) u "one" (con la mano de abajo:
 	// el stick de esa mitad mueve y sus botones aceptan y vuelven; con la
@@ -181,10 +195,26 @@ type UI struct {
 	// Visualizer es el último visualizador que se vio ("lake", "milk"...),
 	// para volver a él.
 	Visualizer string `json:"visualizer,omitempty"`
+	// VisualVariants guarda la variante o cámara elegida para cada
+	// visualizador ("bars", "ncs", "lake"...), para recordarla entre
+	// sesiones.
+	VisualVariants map[string]int `json:"visual_variants,omitempty"`
 	// VisualBG pone ese visualizador de fondo en el reproductor, atenuado.
 	// Encendido por defecto; se guarda también apagado (sin omitempty), para
 	// que apagarlo no vuelva al valor por defecto al abrir.
 	VisualBG bool `json:"visual_bg"`
+	// NowPlayingViz es el estilo del visualizador de Reproduciendo ("led",
+	// "smooth", "wave", "mirror", "off").
+	NowPlayingViz string `json:"now_playing_viz,omitempty"`
+	// NowPlayingLyrics muestra la letra en pequeño dentro de la zona del
+	// visualizador de Reproduciendo.
+	NowPlayingLyrics bool `json:"now_playing_lyrics,omitempty"`
+	// NowPlayingUpNext controla la vista previa del siguiente tema en
+	// Reproduciendo ("end": últimos 15s, "always": siempre, "off": apagado).
+	NowPlayingUpNext string `json:"now_playing_up_next,omitempty"`
+	// ProgressStyle es el estilo de la barra de progreso ("classic",
+	// "retro", "thin", "pill", "nyancat").
+	ProgressStyle string `json:"progress_style,omitempty"`
 	// ThemeColor es un color fijo para la interfaz ("blue", "purple"...;
 	// ui/theme.go), por ejemplo el de la carcasa, "album" el de cada disco o
 	// "system" el del tema de Omarchy; vacío (sin elegir), el del sistema en
@@ -194,6 +224,18 @@ type UI struct {
 	// normal); la música va siempre a la normal.
 	BookSpeed float64 `json:"book_speed,omitempty"`
 	RadioDir  string  `json:"radio_dir,omitempty"`
+	// SplashWord es el texto del logo del splash (vacío: "audiofilus").
+	SplashWord string `json:"splash_word,omitempty"`
+	// SplashBy es la firma inferior del splash (vacío: "juanvillacortac").
+	SplashBy string `json:"splash_by,omitempty"`
+	// SplashImage es la ruta a una imagen de splash personalizada (.png/.jpg).
+	SplashImage string `json:"splash_image,omitempty"`
+	// SplashAlways fuerza mostrar el splash aunque el servicio ya estuviera corriendo.
+	SplashAlways bool `json:"splash_always,omitempty"`
+	// SplashColor es el tono de color del splash: 0: original, 1: now playing, 2: tema, 3: cyberpunk, 4: matrix, 5: amber, 6: silver.
+	SplashColor int `json:"splash_color,omitempty"`
+	// SleepTimerMin es el tiempo de apagado programado en minutos (0: desactivado).
+	SleepTimerMin int `json:"sleep_timer_min,omitempty"`
 }
 
 // Input elige el mando. Lo normal es dejarlo vacío: el mando y su mapeo salen
@@ -229,6 +271,10 @@ func Default() Config {
 		},
 		UI:      UI{SleepAfter: 30, Clock24: true, SleepMode: "backlight", Visualizer: "milk", VisualBG: true},
 		Hotkeys: Hotkeys{Enabled: true, Taps: 3, TapMS: 400, WindowMS: 1500, SeekSec: 10},
+		Spotify: Spotify{
+			ClientID:     "4fb7c85e66b8403a8ffdf424372dbf8e",
+			ClientSecret: "4ace292096f241afb76e03e6aa9054c6",
+		},
 	}
 }
 
@@ -263,7 +309,11 @@ func Locate() (Paths, error) {
 	sum := sha256.Sum256([]byte(base))
 	sock := os.Getenv("AUDIOFILUS_SOCKET")
 	if sock == "" {
-		sock = filepath.Join(os.TempDir(), "audiofilus-"+hex.EncodeToString(sum[:4])+".sock")
+		tmpDir := os.TempDir()
+		if runtime.GOOS == "linux" {
+			tmpDir = "/tmp"
+		}
+		sock = filepath.Join(tmpDir, "audiofilus-"+hex.EncodeToString(sum[:4])+".sock")
 	}
 	data := filepath.Join(base, "data")
 	return Paths{
@@ -307,12 +357,13 @@ func Save(p Paths, cfg Config) error {
 
 // State es lo que audiofilus recuerda entre ejecuciones.
 type State struct {
-	Queue    []string `json:"queue"`
-	Index    int      `json:"index"`
-	Position float64  `json:"position"`
-	Shuffle  bool     `json:"shuffle"`
-	Repeat   string   `json:"repeat"`
-	Volume   float64  `json:"volume"`
+	Queue               []string `json:"queue"`
+	Index               int      `json:"index"`
+	Position            float64  `json:"position"`
+	Shuffle             bool     `json:"shuffle"`
+	SpotifySmartShuffle bool     `json:"spotify_smart_shuffle,omitempty"`
+	Repeat              string   `json:"repeat"`
+	Volume              float64  `json:"volume"`
 	// DSP es la configuración del sonido (engine.DSP: ReplayGain,
 	// ecualizador, fundido), tal cual.
 	DSP json.RawMessage `json:"dsp,omitempty"`

@@ -173,6 +173,10 @@ func readM3U(path string) ([]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		if strings.Contains(line, "://") || strings.HasPrefix(line, "spotify:") {
+			files = append(files, line)
+			continue
+		}
 		line = filepath.FromSlash(strings.ReplaceAll(line, `\`, "/"))
 		if !filepath.IsAbs(line) {
 			line = filepath.Join(dir, line)
@@ -199,7 +203,7 @@ var RemoteTrack func(path string) (Track, bool)
 // ReadTrack lee las etiquetas de path; si no tiene título, usa el nombre del archivo.
 func ReadTrack(path string) Track {
 	t := Track{Path: path}
-	if strings.Contains(path, "://") {
+	if strings.Contains(path, "://") || strings.HasPrefix(path, "spotify:") {
 		if RemoteTrack != nil {
 			if r, ok := RemoteTrack(path); ok {
 				r.Path = path

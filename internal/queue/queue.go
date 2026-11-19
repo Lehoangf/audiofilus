@@ -74,15 +74,27 @@ func (q *Queue) Set(tracks []string, start int) {
 	}
 }
 
-// Append añade canciones al final del orden de reproducción.
+// Append añade canciones al final del orden de reproducción; con aleatorio
+// activo, las mezcla con el tramo pendiente sin tocar la pista actual.
 func (q *Queue) Append(tracks []string) {
+	if len(tracks) == 0 {
+		return
+	}
 	for _, t := range tracks {
 		q.order = append(q.order, len(q.tracks))
 		q.linear = append(q.linear, len(q.tracks))
 		q.tracks = append(q.tracks, t)
 	}
-	if q.cur < 0 && len(q.tracks) > 0 {
+	if q.cur < 0 {
 		q.cur = 0
+		if q.shuffle {
+			q.reshuffle()
+		}
+		return
+	}
+	if q.shuffle && q.cur+1 < len(q.order) {
+		rest := q.order[q.cur+1:]
+		q.rng.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
 	}
 }
 
@@ -207,17 +219,19 @@ func (q *Queue) Next(auto bool) bool {
 }
 
 // Peek es la canción que vendrá después de la actual, sin moverse (para
-// bajarla antes si es remota). "" si no hay.
+// bajarla antes si es remota). Soporta reproducción lineal y aleatoria. "" si no hay.
 func (q *Queue) Peek() string {
 	switch {
-	case len(q.order) == 0:
+	case len(q.order) == 0 || q.cur < 0:
 		return ""
 	case q.Repeat == RepeatOne:
 		return q.tracks[q.order[q.cur]]
 	case q.cur+1 < len(q.order):
 		return q.tracks[q.order[q.cur+1]]
-	case q.Repeat == RepeatAll && !q.shuffle:
-		return q.tracks[q.order[0]]
+	case q.Repeat == RepeatAll:
+		if len(q.order) > 0 {
+			return q.tracks[q.order[0]]
+		}
 	}
 	return ""
 }

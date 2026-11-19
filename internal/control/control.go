@@ -52,7 +52,7 @@ func Serve(socket string, h Handler) (net.Listener, error) {
 // handle atiende una conexión: lee una petición y escribe una respuesta.
 func handle(conn net.Conn, h Handler) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 	var req Request
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&req); err != nil {
 		_ = json.NewEncoder(conn).Encode(Response{Error: "bad request: " + err.Error()})
@@ -166,7 +166,7 @@ func Call(socket string, req Request) (Response, error) {
 		return Response{}, ErrNotRunning
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Response{}, err
 	}

@@ -303,7 +303,7 @@ func (a *App) podPlay(show podcast.Show, e podcast.Episode) {
 // reproductor); con play, lo pone al terminar.
 func (a *App) podDownload(show podcast.Show, e podcast.Episode, play bool) {
 	path := a.epPath(show, e)
-	for _, j := range a.yt.jobs {
+	for _, j := range a.ytJobsSnapshot() {
 		if j.podcast && j.path == path && j.active() {
 			if play {
 				a.flash(T("pd_wait"))

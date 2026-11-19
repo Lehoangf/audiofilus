@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestAuthStorage(t *testing.T) {
 	dir := t.TempDir()
-	am := NewAuthManager(dir, "test-client-id")
+	am := NewAuthManager(dir, "test-client-id", "")
 	creds := Credentials{
 		AccessToken:  "test-access-token",
 		RefreshToken: "test-refresh-token",
@@ -50,10 +51,10 @@ func TestProactiveTokenRefresh(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	am := NewAuthManager(dir, "test-client-id")
+	am := NewAuthManager(dir, "test-client-id", "")
 	am.tokenURL = ts.URL + "/api/token"
 
-	// Guardar un token que caduca en 1 minuto (menos del umbral proactivo de 5 minutos)
+	// Store token expiring in 1 minute (below the 5-minute proactive threshold)
 	creds := Credentials{
 		AccessToken:  "old-token",
 		RefreshToken: "valid-refresh-token",
@@ -78,5 +79,48 @@ func TestProactiveTokenRefresh(t *testing.T) {
 	}
 	if updated.AccessToken != "new-refreshed-token" {
 		t.Errorf("expected updated token to be stored, got %s", updated.AccessToken)
+	}
+}
+
+func TestLoginPortalHTMLAndPixelStyle(t *testing.T) {
+	html := loginPortalHTML("192.168.1.100", 8888, "my-custom-cid", "my-custom-sec")
+	if html == "" {
+		t.Fatal("expected non-empty html")
+	}
+	checks := []string{
+		"my-custom-cid",
+		"my-custom-sec",
+		"Press+Start+2P",
+		"VT323",
+		"name=\"client_id\"",
+		"name=\"client_secret\"",
+		"id=\"clientId\"",
+		"id=\"clientSecret\"",
+		"id=\"manualCode\"",
+		"/api/config",
+		"/api/exchange",
+		"http://127.0.0.1:8888/callback",
+	}
+	for _, c := range checks {
+		if !strings.Contains(html, c) {
+			t.Errorf("loginPortalHTML missing expected substring: %q", c)
+		}
+	}
+
+	if !strings.Contains(loginSuccessHTML, "ĐĂNG NHẬP THÀNH CÔNG") || !strings.Contains(loginSuccessHTML, "Press+Start+2P") {
+		t.Errorf("loginSuccessHTML missing pixel header or success message")
+	}
+}
+
+func TestClientConfigSaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	am := NewAuthManager(dir, "init-id", "init-sec")
+	if err := am.saveClientConfig("saved-id", "saved-sec"); err != nil {
+		t.Fatalf("saveClientConfig failed: %v", err)
+	}
+
+	am2 := NewAuthManager(dir, "", "")
+	if am2.clientID != "saved-id" || am2.clientSecret != "saved-sec" {
+		t.Errorf("expected am2 to load saved keys, got id=%s, sec=%s", am2.clientID, am2.clientSecret)
 	}
 }

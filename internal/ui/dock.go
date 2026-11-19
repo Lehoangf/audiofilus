@@ -27,8 +27,8 @@ type dockEntry struct {
 var dockEntries = []dockEntry{
 	{screen: NowPlaying, search: false, icon: "disc", label: "scr_now"},
 	{screen: LibraryScreen, search: false, icon: "folder", label: "scr_library"},
-	{screen: LibraryScreen, search: true, icon: "search", label: "tab_search"},
-	{screen: Spotify, search: false, icon: "note", label: "scr_spotify"},
+	{screen: Spotify, search: false, icon: "spotify", label: "scr_spotify"},
+	{screen: YTMusic, search: false, icon: "ytm", label: "scr_ytmusic"},
 	{screen: Radio, search: false, icon: "radio", label: "scr_radio"},
 	{screen: Podcasts, search: false, icon: "mic", label: "scr_podcasts"},
 	{screen: Modules, search: false, icon: "tracker", label: "scr_modules"},
@@ -61,7 +61,7 @@ func dockIndex(s Screen) int {
 func (a *App) docks() []dockEntry {
 	var out []dockEntry
 	for _, e := range dockEntries {
-		if e.screen == Downloads && a.yt.bin == "" && len(a.remotes) == 0 {
+		if e.screen == Downloads && a.yt.bin == "" && len(a.remotes) == 0 && len(a.downloadJobs()) == 0 && !a.spot.loggedIn {
 			continue
 		}
 		out = append(out, e)
@@ -237,6 +237,35 @@ func (a *App) openVisualMenu() {
 	if v.kind == visMilk {
 		m.items = append(a.milkMenuItems(), m.items...)
 	}
+	m.items = append(m.items,
+		menuItem{
+			label: T("vis_bg"),
+			icon:  "bg",
+			do: func() {
+				a.cfg.UI.VisualBG = !a.cfg.UI.VisualBG
+				a.saveConfig()
+			},
+			active: func() bool { return a.cfg.UI.VisualBG },
+			value: func() string {
+				if !a.cfg.UI.VisualBG {
+					return T("off")
+				}
+				return T("on")
+			},
+		},
+		menuItem{
+			label: T("set_now_viz"),
+			icon:  "vis_bars",
+			value: func() string { return a.nowPlayingVizLabel() },
+			do:    func() { a.cycleNowPlayingViz() },
+		},
+		menuItem{
+			label: T("set_prog_style"),
+			icon:  "note",
+			value: func() string { return a.progressStyleLabel() },
+			do:    func() { a.cycleProgressStyle() },
+		},
+	)
 	m.items = append(m.items, menuItem{label: T("h_pause"), icon: "pause", do: func() { a.send("toggle") }})
 	a.menu = m
 }

@@ -1,5 +1,5 @@
-// Package spotify proporciona el cliente de API, sincronización y reproducción
-// para el servicio de música online de Spotify.
+// Package spotify provides the API client, catalog synchronization, and playback
+// for Spotify online streaming.
 package spotify
 
 import (
@@ -16,20 +16,19 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Transport gestiona el ritmo de peticiones hacia la API de Spotify,
-// reintentando automáticamente ante códigos 429 (Too Many Requests) y
-// agrupando peticiones GET idénticas concurrentes mediante singleflight.
+// Transport rate-limits requests to Spotify API, retrying on 429 (Too Many Requests)
+// and coalescing concurrent identical GET requests via singleflight.
 type Transport struct {
 	base      http.RoundTripper
-	rate      float64 // Tokens añadidos por segundo.
-	burst     float64 // Capacidad máxima de tokens.
+	rate      float64 // Tokens added per second.
+	burst     float64 // Maximum token capacity.
 	tokens    float64
 	lastCheck time.Time
 	mu        sync.Mutex
 	group     singleflight.Group
 }
 
-// NewTransport crea un nuevo Transport con límite de tasa de tokens y un transporte base.
+// NewTransport creates a new rate-limited Transport with token bucket limits and base transport.
 func NewTransport(rateLimit float64, burst int, base http.RoundTripper) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
@@ -49,7 +48,7 @@ func NewTransport(rateLimit float64, burst int, base http.RoundTripper) *Transpo
 	}
 }
 
-// waitToken espera hasta que haya al menos un token disponible en el cubo.
+// waitToken blocks until at least one token is available in the bucket.
 func (t *Transport) waitToken(ctx context.Context) error {
 	for {
 		t.mu.Lock()
@@ -83,9 +82,9 @@ func (t *Transport) waitToken(ctx context.Context) error {
 	}
 }
 
-// RoundTrip ejecuta la petición HTTP con control de tasa, reintento 429 y coalescencia.
+// RoundTrip executes the HTTP request with rate limiting, 429 retries, and request coalescing.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Solo agrupamos peticiones GET concurrentes sin cuerpo.
+	// Only coalesce concurrent bodyless GET requests.
 	if req.Method == http.MethodGet && (req.Body == nil || req.Body == http.NoBody) {
 		key := req.URL.String()
 		res, err, _ := t.group.Do(key, func() (any, error) {
@@ -93,7 +92,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if err != nil {
 				return nil, err
 			}
-			// Duplicamos el cuerpo para que múltiples lectores puedan consumirlo si concurren.
+			// Duplicate body so multiple readers can consume it concurrently.
 			bodyBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
@@ -143,7 +142,7 @@ func (cr *cachedResponse) toHTTPResponse(req *http.Request) *http.Response {
 	}
 }
 
-// roundTripWithRetry ejecuta la petición esperando el token y aplicando retroceso ante códigos 429.
+// roundTripWithRetry executes the request, waiting for tokens and backing off on 429 status.
 func (t *Transport) roundTripWithRetry(req *http.Request) (*http.Response, error) {
 	const maxRetries = 3
 
@@ -161,7 +160,7 @@ func (t *Transport) roundTripWithRetry(req *http.Request) (*http.Response, error
 			return resp, nil
 		}
 
-		// Leer Retry-After o utilizar retroceso seguro por defecto.
+		// Read Retry-After header or use default safe backoff.
 		backoff := 2 * time.Second
 		retryAfter := resp.Header.Get("Retry-After")
 		if retryAfter != "" {
@@ -170,11 +169,11 @@ func (t *Transport) roundTripWithRetry(req *http.Request) (*http.Response, error
 			}
 		}
 
-		// Añadir jitter entre 100ms y 500ms para evitar tormentas de reconexión.
+		// Add jitter between 100ms and 500ms to avoid reconnect thundering herd.
 		jitter := time.Duration(100+rand.Intn(400)) * time.Millisecond
 		backoff += jitter
 
-		// Liberar cuerpo de la respuesta anterior.
+		// Close previous response body.
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 

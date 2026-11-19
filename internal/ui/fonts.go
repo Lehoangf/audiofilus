@@ -7,6 +7,9 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -40,18 +43,270 @@ var (
 	// china), si cargaron.
 	bigBase, smallBase text.Face
 	cjkBig, cjkSmall   [2]text.Face
-)
 
-// cjkFonts son los archivos de Fusion Pixel 8px, comprimidos (sin
-// comprimir pesan 3,7 MB cada uno).
-var cjkFonts = [2]string{"fonts/FusionPixel8-ja.ttf.gz", "fonts/FusionPixel8-zh_hans.ttf.gz"}
-
-const (
+	currentFont = "default"
 	bigCapTop   = 5
 	bigCap      = 10
 	smallCapTop = 2
 	smallCap    = 5
 )
+
+// thaiFont es Silver solo con el tailandés (10 KB: se carga con las de base).
+const thaiFont = "fonts/Silver-thai.ttf"
+
+// thaiPx es el tamaño de Silver: su rejilla es de 1900/100 = 19 px.
+const thaiPx = 19
+
+// multiFace junta faces (la primera que tenga cada letra); si no se puede,
+// se queda con la primera.
+func multiFace(faces []text.Face) text.Face {
+	if len(faces) == 1 {
+		return faces[0]
+	}
+	m, err := text.NewMultiFace(faces...)
+	if err != nil {
+		return faces[0]
+	}
+	return m
+}
+
+var (
+	cjkFonts    = [2]string{"fonts/FusionPixel8-ja.ttf.gz", "fonts/FusionPixel8-zh_hans.ttf.gz"}
+	lastBaseDir string
+)
+
+// CurrentFont devuelve el identificador de la fuente actualmente seleccionada.
+func CurrentFont() string {
+	return currentFont
+}
+
+// AvailableFonts devuelve los nombres de fuentes disponibles (default, coderscrux, retron2000, kvn97, dearpix y los archivos en fonts/).
+func AvailableFonts(baseDir string) []string {
+	if baseDir != "" {
+		lastBaseDir = baseDir
+	} else if lastBaseDir != "" {
+		baseDir = lastBaseDir
+	}
+	fonts := []string{"default", "coderscrux", "retron2000", "kvn97", "dearpix"}
+	seen := map[string]bool{
+		"default":             true,
+		"coderscrux":          true,
+		"coders_crux":         true,
+		"svn-coders-crux":     true,
+		"svn-coders-crux.ttf": true,
+		"retron2000":          true,
+		"retron_2000":         true,
+		"svn-retron-2000":     true,
+		"svn-retron-2000.ttf": true,
+		"kvn97":               true,
+		"kvn-97":              true,
+		"kvn-97.ttf":          true,
+		"dearpix":             true,
+		"dearpix-2-01":        true,
+		"dearpix-2-01.otf":    true,
+	}
+	if baseDir == "" {
+		return fonts
+	}
+	fontDir := filepath.Join(baseDir, "fonts")
+	entries, err := os.ReadDir(fontDir)
+	if err != nil {
+		return fonts
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if ext == ".ttf" || ext == ".otf" {
+			base := strings.ToLower(e.Name())
+			stem := strings.TrimSuffix(base, ext)
+			if !seen[base] && !seen[stem] {
+				fonts = append(fonts, e.Name())
+				seen[base] = true
+				seen[stem] = true
+			}
+		}
+	}
+	return fonts
+}
+
+func withVietnameseFallback(main text.Face, px float64, like font.Face) text.Face {
+	if crux, err := loadFace("fonts/SVN-Coders-Crux.ttf", px, like); err == nil {
+		if m, err := text.NewMultiFace(main, text.NewGoXFace(crux)); err == nil {
+			return m
+		}
+	}
+	return main
+}
+
+// defaultFontNames devuelve las rutas de las fuentes para títulos (grande) y texto/letras
+// (pequeña), usando las versiones con soporte nativo de vietnamita (-VN) si están presentes.
+func defaultFontNames() (string, string) {
+	bigName := "fonts/Jersey10-Regular-VN.ttf"
+	if _, err := assets.FS.ReadFile(bigName); err != nil {
+		bigName = "fonts/Jersey10-Regular.ttf"
+	}
+	smallName := "fonts/Tiny5-Regular-VN.ttf"
+	if _, err := assets.FS.ReadFile(smallName); err != nil {
+		smallName = "fonts/Tiny5-Regular.ttf"
+	}
+	return bigName, smallName
+}
+
+// SetFont cambia la fuente de la interfaz a la indicada ("default", "coderscrux", "retron2000", "kvn97", "dearpix" o un archivo en fonts/).
+func SetFont(name, baseDir string) error {
+	norm := strings.ToLower(name)
+	switch {
+	case norm == "" || norm == "default":
+		bigFont, smallFont := defaultFontNames()
+		big, err := loadFace(bigFont, 1400.0/75, nil)
+		if err != nil {
+			return err
+		}
+		small, err := loadFace(smallFont, 8, nil)
+		if err != nil {
+			return err
+		}
+		tinyBig, err := loadFace(smallFont, 16, big)
+		if err != nil {
+			return err
+		}
+		// Las letras con marcas que les falten (el vietnamita), armadas con sus
+		// partes (compose.go).
+		bigFaces := []text.Face{text.NewGoXFace(newComposeFace(big, 2)), text.NewGoXFace(newComposeFace(tinyBig, 2))}
+		smallFaces := []text.Face{text.NewGoXFace(newComposeFace(small, 1))}
+		// El tailandés, con las medidas de cada una (ver newFace): si no carga,
+		// sigue sin él.
+		if f, err := parseFont(thaiFont); err == nil {
+			tb, err1 := newFace(f, thaiFont, thaiPx, big)
+			ts, err2 := newFace(f, thaiFont, thaiPx, small)
+			if err1 == nil && err2 == nil {
+				bigFaces = append(bigFaces, text.NewGoXFace(tb))
+				smallFaces = append(smallFaces, text.NewGoXFace(ts))
+			}
+		}
+		bigMain := multiFace(bigFaces)
+		bigBase = withVietnameseFallback(bigMain, 20, big)
+		smallBase = withVietnameseFallback(multiFace(smallFaces), 12, small)
+		bigCapTop, bigCap = 5, 10
+		smallCapTop, smallCap = 2, 5
+		currentFont = "default"
+		setFontOrder()
+		return nil
+
+	case norm == "coderscrux" || norm == "coders_crux" || norm == "svn-coders-crux.ttf" || norm == "svn-coders-crux":
+		f, err := parseFont("fonts/SVN-Coders-Crux.ttf")
+		if err != nil {
+			return err
+		}
+		big, err := newFace(f, "coderscrux", 20, nil)
+		if err != nil {
+			return err
+		}
+		small, err := newFace(f, "coderscrux", 14, nil)
+		if err != nil {
+			return err
+		}
+		bigBase, smallBase = text.NewGoXFace(big), text.NewGoXFace(small)
+		bigCapTop, bigCap = 0, 12
+		smallCapTop, smallCap = 0, 8
+		currentFont = "coderscrux"
+		setFontOrder()
+		return nil
+
+	case norm == "retron2000" || norm == "retron_2000" || norm == "svn-retron-2000.ttf" || norm == "svn-retron-2000":
+		f, err := parseFont("fonts/SVN-Retron-2000.ttf")
+		if err != nil {
+			return err
+		}
+		big, err := newFace(f, "retron2000", 14, nil)
+		if err != nil {
+			return err
+		}
+		small, err := newFace(f, "retron2000", 10, nil)
+		if err != nil {
+			return err
+		}
+		bigBase, smallBase = text.NewGoXFace(big), text.NewGoXFace(small)
+		bigCapTop, bigCap = 9, 11
+		smallCapTop, smallCap = 6, 8
+		currentFont = "retron2000"
+		setFontOrder()
+		return nil
+
+	case norm == "kvn97" || norm == "kvn-97" || norm == "kvn-97.ttf":
+		f, err := parseFont("fonts/kvn-97.ttf")
+		if err != nil {
+			return err
+		}
+		big, err := newFace(f, "kvn97", 14, nil)
+		if err != nil {
+			return err
+		}
+		small, err := newFace(f, "kvn97", 10, nil)
+		if err != nil {
+			return err
+		}
+		bigBase = withVietnameseFallback(text.NewGoXFace(big), 20, big)
+		smallBase = withVietnameseFallback(text.NewGoXFace(small), 12, small)
+		bigCapTop, bigCap = 1, 13
+		smallCapTop, smallCap = 1, 9
+		currentFont = "kvn97"
+		setFontOrder()
+		return nil
+
+	case norm == "dearpix" || norm == "dearpix-2-01" || norm == "dearpix-2-01.otf":
+		f, err := parseFont("fonts/dearpix-2-01.otf")
+		if err != nil {
+			return err
+		}
+		big, err := newFace(f, "dearpix", 16, nil)
+		if err != nil {
+			return err
+		}
+		small, err := newFace(f, "dearpix", 10, nil)
+		if err != nil {
+			return err
+		}
+		bigBase = withVietnameseFallback(text.NewGoXFace(big), 20, big)
+		smallBase = withVietnameseFallback(text.NewGoXFace(small), 12, small)
+		bigCapTop, bigCap = 4, 10
+		smallCapTop, smallCap = 2, 6
+		currentFont = "dearpix"
+		setFontOrder()
+		return nil
+
+	default:
+		path := name
+		if !filepath.IsAbs(path) && baseDir != "" {
+			path = filepath.Join(baseDir, "fonts", name)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		f, err := opentype.Parse(data)
+		if err != nil {
+			return err
+		}
+		big, err := newFace(f, name, 16, nil)
+		if err != nil {
+			return err
+		}
+		small, err := newFace(f, name, 10, nil)
+		if err != nil {
+			return err
+		}
+		bigBase = withVietnameseFallback(text.NewGoXFace(big), 20, big)
+		smallBase = withVietnameseFallback(text.NewGoXFace(small), 12, small)
+		bigCapTop, bigCap = 4, 10
+		smallCapTop, smallCap = 2, 6
+		currentFont = name
+		setFontOrder()
+		return nil
+	}
+}
 
 // cjkLoaded trae las fuentes de Fusion Pixel cuando terminan de cargar en
 // segundo plano (descomprimir y leer 7 MB cuesta en las portátiles): mientras
@@ -62,27 +317,13 @@ var cjkLoaded chan [2][2]text.Face
 // en segundo plano (llegan con pollFonts). Si Fusion Pixel no carga, sigue sin
 // ella (el japonés y el chino no se ven).
 func LoadFonts() error {
-	big, err := loadFace("fonts/Jersey10-Regular.ttf", 1400.0/75, nil)
-	if err != nil {
+	if err := SetFont("default", ""); err != nil {
 		return err
 	}
-	small, err := loadFace("fonts/Tiny5-Regular.ttf", 8, nil)
-	if err != nil {
-		return err
-	}
-	// Jersey no tiene cirílico ni griego y Tiny5 sí: en los títulos, lo que
-	// le falta a Jersey sale de Tiny5 al doble (el mismo grosor de bloque).
-	tinyBig, err := loadFace("fonts/Tiny5-Regular.ttf", 16, big)
-	if err != nil {
-		return err
-	}
-	bigMain := text.Face(text.NewGoXFace(big))
-	if m, err := text.NewMultiFace(bigMain, text.NewGoXFace(tinyBig)); err == nil {
-		bigMain = m
-	}
-	bigBase, smallBase = bigMain, text.NewGoXFace(small)
+	bigFont, smallFont := defaultFontNames()
+	big, _ := loadFace(bigFont, 1400.0/75, nil)
+	small, _ := loadFace(smallFont, 8, nil)
 	cjkBig, cjkSmall = [2]text.Face{}, [2]text.Face{}
-	setFontOrder()
 	cjkLoaded = make(chan [2][2]text.Face, 1)
 	go func(ch chan [2][2]text.Face) {
 		var out [2][2]text.Face // [variante][grande, pequeña]
@@ -133,7 +374,7 @@ func setFontOrder() {
 		return // aún no se cargaron (SetLanguage va antes que LoadFonts)
 	}
 	order := [2]int{0, 1}
-	if lang == "zh" {
+	if lang == "zh" || lang == "zh-TW" {
 		order = [2]int{1, 0}
 	}
 	build := func(base text.Face, cjk [2]text.Face) text.Face {
@@ -236,6 +477,15 @@ func drawText(dst *ebiten.Image, s string, face text.Face, x, y int, c color.Col
 	if face == BigFace {
 		top = bigCapTop
 	}
+	if needsShaping(s) { // hindi o árabe (complex.go)
+		l := shapeLine(s, face)
+		img := l.image(face)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(x), float64(y-top-l.pad))
+		op.ColorScale.ScaleWithColor(c)
+		dst.DrawImage(img, op)
+		return
+	}
 	op := &text.DrawOptions{}
 	op.GeoM.Translate(float64(x), float64(y-top))
 	op.ColorScale.ScaleWithColor(c)
@@ -250,6 +500,9 @@ func drawTextShadow(dst *ebiten.Image, s string, face text.Face, x, y int, c, sh
 
 // textWidth es el ancho de s en píxeles.
 func textWidth(s string, face text.Face) int {
+	if needsShaping(s) {
+		return shapeLine(s, face).w
+	}
 	return int(text.Advance(s, face) + 0.5)
 }
 

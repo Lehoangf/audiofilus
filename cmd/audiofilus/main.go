@@ -153,17 +153,29 @@ func startDetached(paths config.Paths) error {
 	c.SysProcAttr = detachAttr()
 	c.Env = append(os.Environ(), "AUDIOFILUS_HOME="+paths.Base)
 	closeInherited()
-	if err := c.Start(); err != nil {
+	// Con prioridad normal: en Knulli el port corre con nice -4, que es lo
+	// que el ahorro agresivo de Knulli congela tras un rato sin tocar nada
+	// (lo toma por un juego). El servicio va en su propia sesión, y por
+	// tanto en su propio autogroup: su nice no le quita CPU frente al juego.
+	if err := proc.NormalPriority(c.Start); err != nil {
 		return err
 	}
-	// Se espera a que responda el socket para que el siguiente comando lo encuentre.
-	for i := 0; i < 50; i++ {
+	// Se espera a que responda el socket para que el siguiente comando lo encuentre (hasta 15s para handhelds).
+	for i := 0; i < 150; i++ {
 		if _, err := control.Call(paths.Socket, control.Request{Cmd: "status"}); err == nil {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("daemon did not start; see %s", paths.Log)
+	var tail string
+	if b, err := os.ReadFile(paths.Log); err == nil && len(b) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if len(lines) > 5 {
+			lines = lines[len(lines)-5:]
+		}
+		tail = ":\n  " + strings.Join(lines, "\n  ")
+	}
+	return fmt.Errorf("daemon did not start%s; see %s", tail, paths.Log)
 }
 
 // runClient envía un comando al daemon y pinta la respuesta.
@@ -209,10 +221,12 @@ func runClient(paths config.Paths, cmd string, args []string) int {
 
 // print pinta la respuesta de cmd en la terminal.
 func print(w io.Writer, cmd string, data json.RawMessage) {
-	if cmd == "dlna" || cmd == "mpd" {
+	if cmd == "dlna" || cmd == "mpd" || cmd == "spotify" {
 		var out bytes.Buffer
 		if json.Indent(&out, data, "", "  ") == nil {
 			fmt.Fprintln(w, out.String())
+		} else {
+			fmt.Fprintln(w, string(data))
 		}
 		return
 	}

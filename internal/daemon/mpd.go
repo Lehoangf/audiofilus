@@ -169,6 +169,8 @@ func (d *Daemon) receivedCover(path string) string {
 		if s := d.dlnaService(); s != nil {
 			return s.Cover(path)
 		}
+	case isSpotifyURI(path) && d.spotifyMgr != nil:
+		return d.spotifyMgr.Cover(path)
 	}
 	return ""
 }

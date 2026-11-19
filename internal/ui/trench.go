@@ -246,6 +246,7 @@ func (a *App) stepTrench(dt float64) {
 func (a *App) drawTrenchScene(img *ebiten.Image) {
 	if a.trench == nil {
 		a.trench = newTrench()
+		a.trench.cam = a.vis.variant[visTrench]
 	}
 	t := a.trench
 	lw, lh := img.Bounds().Dx(), img.Bounds().Dy()

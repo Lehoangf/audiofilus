@@ -114,3 +114,71 @@ func TestRemoveMove(t *testing.T) {
 		t.Errorf("empty queue: %q %d", q.Current(), q.Index())
 	}
 }
+
+// TestPeekLinearAndShuffle verifica que Peek prediga exactamente la siguiente pista
+// tanto en orden lineal como en modo aleatorio (shuffle).
+func TestPeekLinearAndShuffle(t *testing.T) {
+	q := New()
+	q.Set(songs, 0) // songs: "a", "b", "c", "d"
+
+	// 1. Lineal: la siguiente a "a" debe ser "b"
+	if peek := q.Peek(); peek != "b" {
+		t.Errorf("linear peek = %q, want 'b'", peek)
+	}
+
+	// 2. Aleatorio: Peek debe devolver la pista que está en la posición cur+1 del orden desordenado
+	q.SetShuffle(true)
+	nextSong := q.Tracks()[1]
+	if peek := q.Peek(); peek != nextSong {
+		t.Errorf("shuffled peek = %q, want %q", peek, nextSong)
+	}
+	// Al avanzar, la canción actual debe coincidir con la que predijo Peek
+	q.Next(false)
+	if q.Current() != nextSong {
+		t.Errorf("after Next in shuffle: current = %q, want %q", q.Current(), nextSong)
+	}
+}
+
+// TestAppendWhileShuffledPreservesCurrentAndShufflesTail verifica que añadir pistas
+// en modo aleatorio mantenga intacta la pista actual y lo ya reproducido, mezcle
+// las nuevas con la cola restante y conserve el orden lineal al quitar shuffle.
+func TestAppendWhileShuffledPreservesCurrentAndShufflesTail(t *testing.T) {
+	q := New()
+	initial := []string{"a", "b", "c", "d", "e"}
+	q.Set(initial, 2)
+	q.SetShuffle(true)
+
+	// Avanzamos una canción para tener un prefijo ya reproducido [0..cur].
+	if !q.Next(false) {
+		t.Fatal("expected Next to succeed")
+	}
+	cur := q.Current()
+	played := slices.Clone(q.Tracks()[:q.Index()+1])
+
+	var extra []string
+	for i := 0; i < 40; i++ {
+		extra = append(extra, string(rune('f'+i)))
+	}
+	q.Append(extra)
+
+	if q.Current() != cur {
+		t.Fatalf("Append changed current track: got %q, want %q", q.Current(), cur)
+	}
+	if gotPrefix := q.Tracks()[:q.Index()+1]; !slices.Equal(gotPrefix, played) {
+		t.Fatalf("Append altered played prefix: got %v, want %v", gotPrefix, played)
+	}
+
+	// El tramo restante tras cur no debe dejar todas las pistas nuevas al final en orden lineal.
+	tail := q.Tracks()[q.Index()+1:]
+	allNewAtEnd := len(tail) >= len(extra) && slices.Equal(tail[len(tail)-len(extra):], extra)
+	if allNewAtEnd {
+		t.Fatalf("appended tracks stayed linearly at the tail while shuffle is on: %v", tail[len(tail)-len(extra):])
+	}
+
+	// Al quitar shuffle, debe restaurarse el orden lineal completo [a..e, extra...].
+	q.SetShuffle(false)
+	wantLinear := append(append([]string(nil), initial...), extra...)
+	if !slices.Equal(q.Tracks(), wantLinear) {
+		t.Fatalf("unshuffle after Append = %v, want %v", q.Tracks(), wantLinear)
+	}
+}

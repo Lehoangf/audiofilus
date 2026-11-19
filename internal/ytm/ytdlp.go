@@ -131,6 +131,7 @@ func run(ctx context.Context, bin string, progress func(Progress), args ...strin
 		// consola sale por IPv6 a la hora de bajarlo, YouTube da 403 (o yt-dlp
 		// reintenta despacio: 33 s en vez de 16 en la consola).
 		full := []string{"--no-warnings", "--no-playlist", "--force-ipv4",
+			"--no-config", "--no-cache-dir",
 			"--newline", "--progress", "--progress-template",
 			"download:" + progressTag + "%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s"}
 		if c != "" {
@@ -302,7 +303,7 @@ func Download(ctx context.Context, bin string, t Track, musicDir, cacheDir strin
 		if err != nil {
 			return "", err
 		}
-		path, err := saveM4A(t, cached, musicDir, progress)
+		path, err := SaveM4A(t, cached, musicDir, nil, progress)
 		if err != nil {
 			return "", err
 		}
@@ -451,11 +452,11 @@ const CacheKeep = 15
 
 const cacheKeep = CacheKeep
 
-// saveM4A copia a la biblioteca el .m4a de la caché (de Fetch), con la misma
+// SaveM4A copia a la biblioteca el .m4a de la caché (de Fetch), con la misma
 // ruta que Download pero .m4a, y le escribe las etiquetas y la portada en Go
-// (tagwrite: sin ffmpeg). La portada, cuadrada (las miniaturas de los videos
-// son 16:9).
-func saveM4A(t Track, cached, musicDir string, progress func(Progress)) (string, error) {
+// (tagwrite: sin ffmpeg). Si coverBytes no está vacío, usa esos bytes
+// como portada incrustada; si no, busca cached + ".jpg".
+func SaveM4A(t Track, cached, musicDir string, coverBytes []byte, progress func(Progress)) (string, error) {
 	if progress != nil {
 		progress(Progress{Stage: "convert"})
 	}
@@ -473,7 +474,9 @@ func saveM4A(t Track, cached, musicDir string, progress func(Progress)) (string,
 		return "", err
 	}
 	tags := tagwrite.Tags{Title: t.Title, Artist: t.Artist(), Album: t.Album, AlbumArtist: first}
-	if b, err := os.ReadFile(cached + ".jpg"); err == nil {
+	if len(coverBytes) > 0 {
+		tags.Cover = &tagwrite.Cover{MIME: "image/jpeg", Data: squareJPEG(coverBytes)}
+	} else if b, err := os.ReadFile(cached + ".jpg"); err == nil {
 		tags.Cover = &tagwrite.Cover{MIME: "image/jpeg", Data: squareJPEG(b)}
 	}
 	if err := tagwrite.Write(tmp, tags); err != nil {
@@ -496,6 +499,9 @@ func libraryDir(t Track, musicDir string) (dir, first string) {
 	}
 	return filepath.Join(musicDir, safeName(first), safeName(album)), first
 }
+
+// CopyFile copia src a dst.
+func CopyFile(src, dst string) error { return copyFile(src, dst) }
 
 // copyFile copia src a dst.
 func copyFile(src, dst string) error {
@@ -587,6 +593,9 @@ func fromCache(ctx context.Context, t Track, cached, musicDir string, progress f
 	}
 	return path, os.Rename(tmp, path)
 }
+
+// SafeName es un nombre de archivo seguro para sistemas de archivos exFAT/FAT32.
+func SafeName(s string) string { return safeName(s) }
 
 // safeName es un nombre de archivo que vale en exFAT, como lo deja yt-dlp con
 // --windows-filenames (los caracteres prohibidos, por sus versiones de ancho

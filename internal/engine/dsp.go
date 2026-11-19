@@ -43,6 +43,9 @@ type DSP struct {
 	// Crossfeed mezcla algo de cada canal en el otro para los audífonos
 	// (crossfeed.go): "" apagado, "light", "medium" o "strong".
 	Crossfeed string `json:"crossfeed,omitempty"`
+	// Karaoke atenúa la voz en el centro ("" apagado, "light" o "full";
+	// karaoke.go).
+	Karaoke string `json:"karaoke,omitempty"`
 }
 
 // PEQBand es una banda del ecualizador paramétrico.
@@ -126,6 +129,9 @@ func (d DSP) Normalize() DSP {
 	d.Preamp = math.Max(-12, math.Min(12, d.Preamp))
 	if _, ok := crossfeedLevels[d.Crossfeed]; !ok {
 		d.Crossfeed = ""
+	}
+	if _, ok := karaokeLevels[d.Karaoke]; !ok {
+		d.Karaoke = ""
 	}
 	if len(d.EQ) != len(EQBands) {
 		d.EQ = nil

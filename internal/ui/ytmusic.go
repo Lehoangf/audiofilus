@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"github.com/juanvillacortac/audiofilus/internal/lyrics"
 	"github.com/juanvillacortac/audiofilus/internal/radio"
 	"github.com/juanvillacortac/audiofilus/internal/remote"
 	"github.com/juanvillacortac/audiofilus/internal/ytm"
@@ -69,7 +71,12 @@ func (a *App) streamTrack() (ytm.Track, bool) {
 // guardando.
 func (a *App) streamSavable() (ytm.Track, bool) {
 	t, ok := a.streamTrack()
-	if !ok || a.yt.ids[t.ID] {
+	if !ok {
+		return t, false
+	}
+	a.yt.mu.Lock()
+	defer a.yt.mu.Unlock()
+	if a.yt.ids[t.ID] {
 		return t, false
 	}
 	for _, j := range a.yt.jobs {
@@ -121,23 +128,26 @@ type ytEvent struct {
 
 // ytState es YouTube Music en la interfaz.
 type ytState struct {
-	bin     string // el yt-dlp ("" si no hay: no se ofrece nada)
-	query   string // lo último que se buscó allí
-	pending bool   // esperando la respuesta de esa búsqueda
-	tracks  []ytm.Track
-	results chan ytSearchDone
-	events  chan ytEvent
-	queue   chan *ytJob        // las descargas, para el trabajador
-	jobs    []*ytJob           // los trabajos, el último al final
-	cancel  context.CancelFunc // para la escucha en curso
-	bgScan  *Scan              // la biblioteca, poniéndose al día tras descargar
-	sel     int                // la fila elegida en Descargas
-	scr     scroller           // su desplazamiento con el dedo
+	mu            sync.Mutex
+	bin           string // el yt-dlp ("" si no hay: no se ofrece nada)
+	query         string // lo último que se buscó allí
+	pending       bool   // esperando la respuesta de esa búsqueda
+	tracks        []ytm.Track
+	results       chan ytSearchDone
+	events        chan ytEvent
+	queue         chan *ytJob        // las descargas, para el trabajador
+	jobs          []*ytJob           // los trabajos, el último al final
+	cancel        context.CancelFunc // para la escucha en curso
+	bgScan        *Scan              // la biblioteca, poniéndose al día tras descargar
+	rescanPending bool               // si terminó otra descarga mientras había un escaneo
+	sel           int                // la fila elegida en Descargas
+	scr           scroller           // su desplazamiento con el dedo
 	// Para "ya la tienes": los youtube_id de .library.json y las canciones por
 	// artista y título, de la biblioteca keysOf.
-	ids    map[string]bool
-	keys   map[string]Song
-	keysOf *Library
+	ids     map[string]bool
+	idPaths map[string]string
+	keys    map[string]Song
+	keysOf  *Library
 }
 
 type ytSearchDone struct {
@@ -150,23 +160,23 @@ type ytSearchDone struct {
 func (a *App) initYT() {
 	a.yt.results = make(chan ytSearchDone, 4)
 	a.yt.events = make(chan ytEvent, 256)
-	a.yt.queue = make(chan *ytJob, 128)
+	a.yt.queue = make(chan *ytJob, 512)
 	a.yt.ids = map[string]bool{}
+	a.yt.idPaths = map[string]string{}
 	if a.offline {
 		return
 	}
 	ytCache = ytm.CacheDir(a.paths.Data)
 	a.yt.bin = ytm.Find(a.paths.Base)
-	if a.yt.bin != "" {
-		a.loadHaveIDs()
-	}
+	a.loadHaveIDs()
 	bin := a.yt.bin
 	// El trabajador de descargas (de YouTube Music y de los servidores), de
 	// una en una.
 	go func() {
 		for j := range a.yt.queue {
+			dirs := a.spotifyMusicDirs()
 			dir := ""
-			if dirs := a.cfg.MusicDirs; len(dirs) > 0 {
+			if len(dirs) > 0 {
 				dir = dirs[0]
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
@@ -194,6 +204,41 @@ func (a *App) ytReporter(j *ytJob) func(ytm.Progress) {
 		default:
 		}
 	}
+}
+
+// ytSearchFor abre Buscar con q en YouTube Music: desde el menú de un
+// artista o de un álbum, para encontrar (y descargar) más de lo suyo.
+func (a *App) ytSearchFor(q string) {
+	q = strings.TrimSpace(q)
+	if a.yt.bin == "" || q == "" {
+		return
+	}
+	rs := []rune(q)
+	if len(rs) > 40 { // lo que cabe en la caja de Buscar
+		rs = rs[:40]
+	}
+	a.screen, a.libTab, a.tabFocus = LibraryScreen, tabSearch, false
+	s := &a.search
+	s.query, s.scope, s.lastQuery, s.typing, s.sel = rs, scopeYT, "", false, 0
+	a.searchOnline(string(rs))
+	a.updateSearchResults()
+}
+
+// ytMoreItems son las entradas de YouTube Music del menú de un artista o
+// un álbum (nada si no hay yt-dlp).
+func (a *App) ytMoreItems(artist, album string) []menuItem {
+	if a.yt.bin == "" || a.mobile() {
+		return nil
+	}
+	var items []menuItem
+	if album != "" {
+		q := strings.TrimSpace(artist + " " + album)
+		items = append(items, menuItem{label: T("ytm_more_album"), icon: "search", do: func() { a.ytSearchFor(q) }})
+	}
+	if artist != "" {
+		items = append(items, menuItem{label: T("ytm_more_artist"), icon: "search", do: func() { a.ytSearchFor(artist) }})
+	}
+	return items
 }
 
 // ytSearch busca q en YouTube Music en segundo plano.
@@ -260,6 +305,7 @@ func (a *App) ytEvent(e ytEvent) {
 	j.path, j.err = e.path, e.err
 	if e.err != nil {
 		j.state = jobError
+		a.spot.dlGen.Add(1)
 		if !errors.Is(e.err, context.Canceled) {
 			a.flash(ytErrText(e.err))
 		}
@@ -268,6 +314,9 @@ func (a *App) ytEvent(e ytEvent) {
 	j.state = jobDone
 	if j.after != nil {
 		j.after(j.path)
+	}
+	if j.path != "" && !j.podcast && lyrics.IsLocal(j.path) {
+		a.autoFetchLyrics(j.path, j.track)
 	}
 	if j.podcast {
 		a.flash(T("ytm_saved", j.track.Title))
@@ -279,11 +328,25 @@ func (a *App) ytEvent(e ytEvent) {
 		return
 	}
 	if !j.remote {
+		a.yt.mu.Lock()
+		if a.yt.ids == nil {
+			a.yt.ids = map[string]bool{}
+		}
+		if a.yt.idPaths == nil {
+			a.yt.idPaths = map[string]string{}
+		}
 		a.yt.ids[j.track.ID] = true
+		if j.path != "" {
+			a.yt.idPaths[j.track.ID] = j.path
+		}
+		a.yt.mu.Unlock()
 	}
+	a.spot.dlGen.Add(1)
 	a.flash(T("ytm_saved", j.track.Title))
 	if a.yt.bgScan == nil {
-		a.yt.bgScan = StartScan(a.paths, a.cfg.MusicDirs)
+		a.yt.bgScan = StartScan(a.paths, a.spotifyMusicDirs())
+	} else {
+		a.yt.rescanPending = true
 	}
 }
 
@@ -298,11 +361,17 @@ func (a *App) ytScanDone() {
 			a.setLocal(lib)
 			a.search.lastQuery = ""
 		}
+		if a.yt.rescanPending {
+			a.yt.rescanPending = false
+			a.yt.bgScan = StartScan(a.paths, a.spotifyMusicDirs())
+		}
 	}
 }
 
-// addJob apunta un trabajo (se quedan los 40 últimos).
+// addJob apunta un trabajo (se quedan los 40 últimos terminados y todos los activos).
 func (a *App) addJob(j *ytJob) {
+	a.yt.mu.Lock()
+	defer a.yt.mu.Unlock()
 	a.yt.jobs = append(a.yt.jobs, j)
 	if n := len(a.yt.jobs); n > 40 {
 		for k, old := range a.yt.jobs {
@@ -314,9 +383,16 @@ func (a *App) addJob(j *ytJob) {
 	}
 }
 
+func (a *App) ytJobsSnapshot() []*ytJob {
+	a.yt.mu.Lock()
+	defer a.yt.mu.Unlock()
+	return append([]*ytJob(nil), a.yt.jobs...)
+}
+
 // ytPlay baja t a la caché y la pone a sonar. Si se estaba bajando otra para
 // escuchar, se cancela.
 func (a *App) ytPlay(t ytm.Track) {
+	a.addRecentYT(t)
 	if a.yt.cancel != nil {
 		a.yt.cancel()
 	}
@@ -341,7 +417,7 @@ func (a *App) ytDownload(t ytm.Track) {
 	if len(a.cfg.MusicDirs) == 0 {
 		return
 	}
-	for _, j := range a.yt.jobs {
+	for _, j := range a.ytJobsSnapshot() {
 		if !j.listen && j.track.ID == t.ID && (j.active() || j.state == jobDone) {
 			a.openDownloads() // ya está: se enseña
 			return
@@ -372,9 +448,10 @@ func (a *App) ytQueue(t ytm.Track, mp3 bool) {
 // downloadJobs son las descargas (no lo que se escucha sin guardar, que solo
 // sale en la barra de abajo mientras carga), de la más nueva a la más vieja.
 func (a *App) downloadJobs() []*ytJob {
+	jobs := a.ytJobsSnapshot()
 	var out []*ytJob
-	for k := len(a.yt.jobs) - 1; k >= 0; k-- {
-		if j := a.yt.jobs[k]; !j.listen {
+	for k := len(jobs) - 1; k >= 0; k-- {
+		if j := jobs[k]; !j.listen {
 			out = append(out, j)
 		}
 	}
@@ -384,7 +461,7 @@ func (a *App) downloadJobs() []*ytJob {
 // ytDownloads es cuántas descargas faltan.
 func (a *App) ytDownloads() int {
 	n := 0
-	for _, j := range a.yt.jobs {
+	for _, j := range a.ytJobsSnapshot() {
 		if !j.listen && j.active() {
 			n++
 		}
@@ -467,14 +544,19 @@ func (a *App) drawJobBar(dst *ebiten.Image, x, y, w int, f float64) {
 // la canción que se baja para escuchar y si no, la descarga en curso.
 func (a *App) drawYTBar(dst *ebiten.Image) {
 	var cur *ytJob
-	for _, j := range a.yt.jobs {
+	for _, j := range a.ytJobsSnapshot() {
 		if j.active() && j.state != jobWaiting && (cur == nil || j.listen) {
 			cur = j
 		}
 	}
 	if cur == nil && a.status.Loading {
-		// Una canción de un servidor que aún se está bajando para sonar.
-		cur = &ytJob{track: ytm.Track{Title: a.playingSong.Title}, listen: true, state: jobResolve, remote: true}
+		// Una canción de un servidor o de streaming que aún se está bajando para sonar.
+		isSpot := isSpotifyPath(a.playingSong.Path)
+		if isSpot {
+			cur = &ytJob{track: ytm.Track{ID: "spotify:" + a.playingSong.Path, Title: a.playingSong.Title}, listen: true, state: jobResolve, remote: true}
+		} else {
+			cur = &ytJob{track: ytm.Track{Title: a.playingSong.Title}, listen: true, state: jobResolve, remote: true}
+		}
 	}
 	if cur == nil {
 		return
@@ -486,6 +568,8 @@ func (a *App) drawYTBar(dst *ebiten.Image) {
 	rect(dst, 0, y, w, 1, withAlpha(th.Accent, 0x60))
 	ic, icCol := "download", th.Accent
 	switch {
+	case strings.HasPrefix(cur.track.ID, "spotify:"):
+		ic, icCol = "spotify", spotGreen
 	case cur.remote && cur.listen && radio.IsRadio(a.playingSong.Path):
 		ic = "radio"
 	case cur.remote && cur.listen:
@@ -533,12 +617,30 @@ func (a *App) updateDownloads() {
 	case in.Repeat(ActDown):
 		a.yt.sel = min(max(0, n-1), a.yt.sel+1)
 	case in.Pressed(ActConfirm) && hasStream && a.yt.sel == 0:
-		a.ytDownload(stream)
+		if strings.HasPrefix(stream.ID, "spotify:") {
+			id := strings.TrimPrefix(stream.ID, "spotify:")
+			artist := ""
+			if len(stream.Artists) > 0 {
+				artist = stream.Artists[0]
+			}
+			a.downloadSpotifyTrack(spotifyTrack{
+				ID:     id,
+				Title:  stream.Title,
+				Artist: artist,
+				Album:  stream.Album,
+			})
+		} else {
+			a.ytDownload(stream)
+		}
 	case in.Pressed(ActConfirm) && n > 0:
 		j := jobs[a.yt.sel-off]
 		switch {
 		case j.state == jobDone:
-			a.send("load", "0", j.path)
+			if strings.HasPrefix(j.track.ID, "spotify:") {
+				a.send("load", "0", "spotify://track/"+strings.TrimPrefix(j.track.ID, "spotify:"))
+			} else {
+				a.send("load", "0", j.path)
+			}
 			a.screen = NowPlaying
 		case j.state == jobError:
 			j.state, j.err = jobWaiting, nil
@@ -554,9 +656,6 @@ func (a *App) drawDownloads(dst *ebiten.Image) {
 	w, h := dst.Bounds().Dx(), dst.Bounds().Dy()
 	x, top := margin+4, topH+6
 	a.drawTopBar(dst, T("ytm_jobs"))
-	if a.yt.bin == "" {
-		drawTextW(dst, T("ytm_no_ytdlp"), SmallFace, x, top+6, w-2*x, th.Dim)
-	}
 	const rowH = 22
 	rows := max(1, (h-bottomH-14-top-16)/rowH) // sin tapar la barra de progreso
 	jobs := a.downloadJobs()
@@ -566,6 +665,9 @@ func (a *App) drawDownloads(dst *ebiten.Image) {
 		off = 1
 	}
 	n := len(jobs) + off
+	if a.yt.bin == "" && n == 0 {
+		drawTextW(dst, T("ytm_no_ytdlp"), SmallFace, x, top+6, w-2*x, th.Dim)
+	}
 	if n == 0 && a.yt.bin != "" {
 		drawText(dst, T("ytm_jobs_none"), SmallFace, x, top+6, th.Dim)
 	}
@@ -583,7 +685,11 @@ func (a *App) drawDownloads(dst *ebiten.Image) {
 		}
 		if hasStream && first+i == 0 {
 			// Lo que suena en streaming, para guardarlo de una vez.
-			drawIcon(dst, "ytm", x-1, y, ytRed)
+			ic, icCol := "ytm", ytRed
+			if strings.HasPrefix(stream.ID, "spotify:") {
+				ic, icCol = "spotify", spotGreen
+			}
+			drawIcon(dst, ic, x-1, y, icCol)
 			st := T("ytm_st_stream")
 			stW := textWidth(st, SmallFace)
 			drawTextW(dst, stream.Title, SmallFace, x+12, y, w-2*x-stW-20, th.Text)
@@ -593,7 +699,9 @@ func (a *App) drawDownloads(dst *ebiten.Image) {
 		}
 		j := jobs[first+i-off]
 		ic, icCol := "download", th.Accent
-		if j.remote {
+		if strings.HasPrefix(j.track.ID, "spotify:") {
+			ic, icCol = "spotify", spotGreen
+		} else if j.remote {
 			ic = "server"
 		}
 		if j.podcast {
@@ -627,12 +735,21 @@ func (a *App) drawDownloads(dst *ebiten.Image) {
 // loadHaveIDs lee los youtube_id de las .library.json de las carpetas de
 // música (ytm-gym y las descargas de aquí).
 func (a *App) loadHaveIDs() {
-	a.yt.ids = map[string]bool{}
-	for _, d := range a.cfg.MusicDirs {
-		for id := range ytm.LoadLibrary(d) {
-			a.yt.ids[id] = true
+	ids := map[string]bool{}
+	idPaths := map[string]string{}
+	for _, d := range a.spotifyMusicDirs() {
+		for id, rel := range ytm.LoadLibrary(d) {
+			ids[id] = true
+			if rel != "" {
+				idPaths[id] = filepath.Join(d, rel)
+			}
 		}
 	}
+	a.yt.mu.Lock()
+	a.yt.ids = ids
+	a.yt.idPaths = idPaths
+	a.yt.mu.Unlock()
+	a.spot.dlGen.Add(1)
 }
 
 // songKey es artista y título reducidos para comparar: el primer artista y el
@@ -676,10 +793,13 @@ func (a *App) ytResults(q string) []searchResult {
 	if a.yt.bin == "" || strings.TrimSpace(q) != a.yt.query {
 		return nil
 	}
+	a.yt.mu.Lock()
+	ids := a.yt.ids
+	a.yt.mu.Unlock()
 	var out []searchResult
 	for _, t := range a.yt.tracks {
 		_, own := a.ownSong(t)
-		have := a.yt.ids[t.ID] || own
+		have := ids[t.ID] || own
 		sub := t.Artist()
 		if t.Duration != "" {
 			sub += " · " + t.Duration
@@ -693,13 +813,14 @@ func (a *App) ytResults(q string) []searchResult {
 // que no estén ya (el archivo original, a la primera carpeta de música).
 func (a *App) downloadRemote(songs []Song) {
 	n := 0
+	jobs := a.ytJobsSnapshot()
 	for _, s := range songs {
 		src, rs, ok := a.remoteSong(s.Path)
 		if !ok || len(a.cfg.MusicDirs) == 0 {
 			continue
 		}
 		dup := false
-		for _, j := range a.yt.jobs {
+		for _, j := range jobs {
 			if j.remote && !j.listen && j.track.ID == rs.ID && j.state != jobError {
 				dup = true
 			}

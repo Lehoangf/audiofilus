@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,10 +37,15 @@ func (a *App) savePlaylist(pl *Playlist) error {
 	dir := filepath.Dir(pl.Path)
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
+	if pl.icon != "" {
+		fmt.Fprintf(&b, "#EXT-AUDIOFILUS-ICON:%s\n", pl.icon)
+	}
 	for _, s := range pl.Songs {
 		p := s.Path
-		if rel, err := filepath.Rel(dir, p); err == nil && !strings.HasPrefix(rel, "..") {
-			p = filepath.ToSlash(rel)
+		if !strings.Contains(p, "://") && !strings.HasPrefix(p, "spotify:") {
+			if rel, err := filepath.Rel(dir, p); err == nil && !strings.HasPrefix(rel, "..") {
+				p = filepath.ToSlash(rel)
+			}
 		}
 		fmt.Fprintf(&b, "#EXTINF:-1,%s - %s\n%s\n", s.Artist, s.Title, p)
 	}
@@ -48,6 +54,61 @@ func (a *App) savePlaylist(pl *Playlist) error {
 		return err
 	}
 	return os.Rename(tmp, pl.Path)
+}
+
+// readPlaylistIcon extrae el icono personalizado de la cabecera si existe.
+func readPlaylistIcon(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(strings.TrimPrefix(sc.Text(), "\xef\xbb\xbf"))
+		if strings.HasPrefix(line, "#EXT-AUDIOFILUS-ICON:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "#EXT-AUDIOFILUS-ICON:"))
+		}
+		if line != "" && !strings.HasPrefix(line, "#") {
+			break
+		}
+	}
+	return ""
+}
+
+// readPlaylistExtInf lee los metadatos #EXTINF de una lista M3U.
+func readPlaylistExtInf(path string) map[string]struct{ Title, Artist string } {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	m := make(map[string]struct{ Title, Artist string })
+	sc := bufio.NewScanner(f)
+	var curTitle, curArtist string
+	for sc.Scan() {
+		line := strings.TrimSpace(strings.TrimPrefix(sc.Text(), "\xef\xbb\xbf"))
+		if strings.HasPrefix(line, "#EXTINF:") {
+			rest := strings.TrimPrefix(line, "#EXTINF:")
+			if idx := strings.Index(rest, ","); idx >= 0 {
+				info := strings.TrimSpace(rest[idx+1:])
+				parts := strings.SplitN(info, " - ", 2)
+				if len(parts) == 2 {
+					curArtist, curTitle = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+				} else {
+					curTitle = info
+				}
+			}
+			continue
+		}
+		if line != "" && !strings.HasPrefix(line, "#") {
+			if curTitle != "" || curArtist != "" {
+				m[line] = struct{ Title, Artist string }{Title: curTitle, Artist: curArtist}
+				curTitle, curArtist = "", ""
+			}
+		}
+	}
+	return m
 }
 
 // playlistFile es un nombre de archivo para una lista, sin caracteres que no
@@ -136,6 +197,12 @@ func (a *App) refreshPlaylists() {
 // openAddToPlaylist es el menú de "Añadir a una lista": una nueva o una de
 // las que hay.
 func (a *App) openAddToPlaylist(songs []Song) {
+	if len(songs) > 0 && isSpotifyPath(songs[0].Path) {
+		id := extractSpotifyID(songs[0].Path)
+		tr := spotifyTrack{ID: id, Title: songs[0].Title, Artist: songs[0].Artist, Album: songs[0].Album}
+		a.openAddToSpotifyPlaylist(tr)
+		return
+	}
 	if a.srvAddToPlaylist(songs) {
 		return // canciones de un servidor: a sus listas (serverplaylists.go)
 	}

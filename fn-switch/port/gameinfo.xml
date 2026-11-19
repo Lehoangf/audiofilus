@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./BrickProFNConfig.sh</path>
+    <name>Brick Pro FN Config</name>
+    <desc>Configurator for the FN switch, F1/F2/Home buttons, CPU, brightness, LEDs and audio on the TrimUI Brick Pro (Knulli). Installs and starts its background daemon on first launch.</desc>
+    <releasedate>20261119T000000</releasedate>
+    <developer>fn-switch</developer>
+    <publisher>fn-switch</publisher>
+    <genre>Other</genre>
+  </game>
+</gameList>

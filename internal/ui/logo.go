@@ -33,13 +33,24 @@ var (
 
 // splashLogoSize es el tamaño del logo sin ampliar.
 func splashLogoSize() (int, int) {
-	return logoDisc + 2 + logoWordW() + logoSlant + 5, logoH
+	return splashLogoSizeFor(splashWord)
+}
+
+func splashLogoSizeFor(word string) (int, int) {
+	return logoDisc + 2 + logoWordWFor(word) + logoSlant + 5, logoH
 }
 
 // logoWordW es el ancho de las letras del logo: en negrita (un píxel más
 // cada una) y separadas un píxel más, para que no se toquen.
 func logoWordW() int {
-	return textWidth(splashWord, BigFace) + 2*len([]rune(splashWord))
+	return logoWordWFor(splashWord)
+}
+
+func logoWordWFor(word string) int {
+	if word == "" {
+		word = splashWord
+	}
+	return textWidth(word, BigFace) + 2*len([]rune(word))
 }
 
 // chromeColor es el color del cromo en la fila o de las letras (0 es la
@@ -72,8 +83,19 @@ func drawLogo(dst *ebiten.Image, x, y int, t float64) { drawLogoAt(dst, x, y, t,
 // drawLogoAt es drawLogo ampliado a la escala entera scale (1 donde el logo
 // al doble no cabe: una pantalla en vertical).
 func drawLogoAt(dst *ebiten.Image, x, y int, t float64, scale int) {
-	th := DefaultTheme
-	lw, lh := splashLogoSize()
+	drawLogoWordThemeAt(dst, splashWord, x, y, t, scale, DefaultTheme)
+}
+
+func drawLogoWordAt(dst *ebiten.Image, word string, x, y int, t float64, scale int) {
+	drawLogoWordThemeAt(dst, word, x, y, t, scale, DefaultTheme)
+}
+
+// drawLogoWordThemeAt pinta el logo con texto y tema personalizados.
+func drawLogoWordThemeAt(dst *ebiten.Image, word string, x, y int, t float64, scale int, th Theme) {
+	if word == "" {
+		word = splashWord
+	}
+	lw, lh := splashLogoSizeFor(word)
 	if logoCanvas == nil || logoCanvas.Bounds().Dx() != lw {
 		logoCanvas = newTarget(lw, lh)
 		logoMask = newTarget(lw, lh)
@@ -84,7 +106,7 @@ func drawLogoAt(dst *ebiten.Image, x, y int, t float64, scale int) {
 	// Las letras, en blanco, en la máscara: cada fila de cada letra se
 	// desplaza para inclinarla (cursiva sin suavizado).
 	x0 := logoDisc + 2
-	letters := []rune(splashWord)
+	letters := []rune(word)
 	for i, r := range letters {
 		start := 0.08 + float64(i)*0.07
 		p := (t - start) / 0.5
@@ -141,7 +163,7 @@ func drawLogoAt(dst *ebiten.Image, x, y int, t float64, scale int) {
 
 	// El subrayado curvo, que aparece con las letras.
 	if t > 0.9 {
-		ww := logoWordW()
+		ww := logoWordWFor(word)
 		n := int(float64(ww) * math.Min(1, (t-0.9)/0.35))
 		for i := 0; i < n; i++ {
 			f := float64(i) / float64(ww)
@@ -158,7 +180,7 @@ func drawLogoAt(dst *ebiten.Image, x, y int, t float64, scale int) {
 
 	// Los destellos: estrellas de cuatro puntas que crecen y se apagan.
 	if t > 1.0 {
-		ww := logoWordW()
+		ww := logoWordWFor(word)
 		for i, s := range [][3]float64{{0.97, -5, 0}, {0.2, -4, 1.3}, {0.62, 13, 2.1}, {-0.05, 16, 0.7}} {
 			ph := math.Mod(t*1.6+s[2], 2.2)
 			size := []int{0, 1, 2, 1, 0}[min(4, int(ph*3))]

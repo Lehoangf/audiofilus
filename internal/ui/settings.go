@@ -2,10 +2,11 @@ package ui
 
 import (
 	"fmt"
-	"github.com/juanvillacortac/audiofilus/internal/sfx"
 	"image"
 	"math"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/juanvillacortac/audiofilus/internal/config"
 	"github.com/juanvillacortac/audiofilus/internal/engine"
+	"github.com/juanvillacortac/audiofilus/internal/sfx"
 )
 
 // resamplerModes son las formas de remuestrear: auto (calidad en el
@@ -58,8 +60,19 @@ const (
 	setMPD
 	setOrientation
 	setVControls
+	setOutput
+	setFont
+	setNowViz
+	setProgStyle
+	setSplash
+	setSleepTimer
+	setFetchLyrics
+	setKaraoke
 	setCount
 )
+
+// sleepTimerChoices son los minutos para el temporizador de apagado.
+var sleepTimerChoices = []int{0, 15, 30, 45, 60, 90, 120}
 
 // sleepChoices son los tiempos que se pueden elegir para el sleep (segundos; 0 es nunca).
 var sleepChoices = []int{0, 15, 30, 60, 120, 300}
@@ -104,6 +117,7 @@ var settingSections = []settingSection{
 	{"sec_library", []settingTile{
 		{setFolder, "folder", tileAction},
 		{setRescan, "search", tileAction},
+		{setFetchLyrics, "note", tileAction},
 		{setServers, "server", tileAction},
 		{setRadioDir, "folder", tileAction},
 		{setMilkDir, "folder", tileAction},
@@ -118,9 +132,11 @@ var settingSections = []settingSection{
 	{"sec_sound", []settingTile{
 		{setReplayGain, "speaker", tileChoice},
 		{setEQ, "eq", tileAction},
+		{setOutput, "headphones", tileAction},
 		{setRate, "headphones", tileChoice},
 		{setResampler, "headphones", tileChoice},
 		{setCrossfeed, "headphones", tileChoice},
+		{setKaraoke, "mic", tileChoice},
 	}},
 	{"sec_online", []settingTile{
 		{setScrobble, "user", tileAction},
@@ -132,13 +148,18 @@ var settingSections = []settingSection{
 	{"sec_screen", []settingTile{
 		{setSleep, "moon", tileChoice},
 		{setSleepMode, "screen", tileChoice},
+		{setSleepTimer, "clock", tileChoice},
+		{setSplash, "palette", tileAction},
 		{setClock, "clock", tileToggle},
 		{setThemeColor, "palette", tileChoice},
+		{setNowViz, "vis_bars", tileChoice},
+		{setProgStyle, "note", tileChoice},
 		{setOrientation, "screen", tileChoice},
 		{setVControls, "screen", tileChoice},
 	}},
 	{"sec_system", []settingTile{
 		{setLanguage, "globe", tileChoice},
+		{setFont, "note", tileChoice},
 		{setSounds, "speaker", tileChoice},
 		{setUISounds, "speaker", tileChoice},
 		{setVibration, "vibrate", tileChoice},
@@ -189,6 +210,9 @@ func (a *App) sections() []settingSection {
 		setVibration: a.mobile() || a.status.Platform == "" || a.status.Platform == "desktop",
 		// Girar la interfaz, solo en las portátiles (el móvil gira solo).
 		setOrientation: !handheldUI || a.mobile(),
+		// La salida de audio, si el servicio da a elegir (no en Windows,
+		// macOS ni el móvil, que cambian solos).
+		setOutput: a.mobile() || len(a.status.Outputs) == 0,
 		// Cómo se maneja en vertical, solo si está en vertical.
 		setVControls: !handheldUI || a.mobile() || a.cfg.UI.Orientation == ""}
 	var out []settingSection
@@ -300,6 +324,8 @@ func (a *App) updateSettings() {
 			a.mode = modePicker
 		case setRescan:
 			a.startScan()
+		case setFetchLyrics:
+			a.fetchLibraryMissingLyrics()
 		case setExitBg, setExitStop:
 			a.exit(cur.id == setExitBg)
 		case setUpdate:
@@ -318,6 +344,10 @@ func (a *App) updateSettings() {
 			a.openScrobbleMenu()
 		case setMPD:
 			a.openMPDMenu() // mpdui.go
+		case setOutput:
+			a.openOutputMenu() // outputui.go
+		case setSplash:
+			a.openSplashMenu() // splash_menu.go
 		}
 	}
 }
@@ -359,7 +389,7 @@ func abs(x int) int {
 
 // changeSetting mueve una opción step pasos (o la cambia, si es sí/no).
 func (a *App) changeSetting(id, step int) {
-	cycle := func(n, i int) int { return (i + step + n) % n }
+	cycle := func(n, i int) int { return ((i+step)%n + n) % n }
 	switch id {
 	case setLanguage:
 		_, i := a.settingChoice(id)
@@ -368,6 +398,15 @@ func (a *App) changeSetting(id, step int) {
 		a.local.relabel()
 		a.resetBrowse() // los títulos de las vistas están en el idioma anterior
 		a.saveConfig()
+	case setFont:
+		fonts := AvailableFonts(a.paths.Base)
+		if len(fonts) > 0 {
+			_, i := a.settingChoice(id)
+			chosen := fonts[cycle(len(fonts), i)]
+			_ = SetFont(chosen, a.paths.Base)
+			a.cfg.UI.Font = chosen
+			a.saveConfig()
+		}
 	case setShuffle:
 		a.send("shuffle", onOffArg(!a.status.Shuffle))
 	case setRepeat:
@@ -429,11 +468,24 @@ func (a *App) changeSetting(id, step int) {
 		} else {
 			a.send("restart")
 		}
+	case setNowViz:
+		n, i := a.settingChoice(id)
+		a.cfg.UI.NowPlayingViz = nowPlayingVizModes[cycle(n, i)]
+		a.saveConfig()
+	case setProgStyle:
+		n, i := a.settingChoice(id)
+		a.cfg.UI.ProgressStyle = progressStyles[cycle(n, i)]
+		a.saveConfig()
 	case setCrossfeed:
 		n, i := a.settingChoice(id)
 		lv := engine.CrossfeedLevels[cycle(n, i)]
 		a.send("crossfeed", orDefault(lv, "off"))
 		a.status.DSP.Crossfeed = lv
+	case setKaraoke:
+		n, i := a.settingChoice(id)
+		lv := engine.KaraokeLevels[cycle(n, i)]
+		a.send("karaoke", orDefault(lv, "off"))
+		a.status.DSP.Karaoke = lv
 	case setThemeColor:
 		n, i := a.settingChoice(id)
 		c := themeChoices()[cycle(n, i)]
@@ -487,6 +539,18 @@ func (a *App) changeSetting(id, step int) {
 		a.cfg.UI.Sounds = soundLevels[cycle(n, i)]
 		a.saveConfig()
 		a.playSound(sfx.Play) // para oír el volumen nuevo
+	case setSleepTimer:
+		n, i := a.settingChoice(id)
+		minVal := sleepTimerChoices[cycle(n, i)]
+		a.cfg.UI.SleepTimerMin = minVal
+		a.saveConfig()
+		if minVal == 0 {
+			a.send("timer", "off")
+			a.status.TimerLeft, a.status.StopAfter = 0, false
+		} else {
+			a.send("timer", fmt.Sprint(minVal))
+			a.status.TimerLeft, a.status.StopAfter = float64(minVal*60), false
+		}
 	}
 }
 
@@ -514,6 +578,25 @@ func (a *App) settingChoice(id int) (n, cur int) {
 	switch id {
 	case setLanguage:
 		return find(len(languages), func(i int) bool { return languages[i] == lang })
+	case setFont:
+		fonts := AvailableFonts(a.paths.Base)
+		curFont := CurrentFont()
+		return find(len(fonts), func(i int) bool {
+			f := fonts[i]
+			if f == curFont {
+				return true
+			}
+			norm := strings.ToLower(f)
+			normCur := strings.ToLower(curFont)
+			if norm == normCur {
+				return true
+			}
+			ext := filepath.Ext(norm)
+			if strings.TrimSuffix(norm, ext) == normCur {
+				return true
+			}
+			return false
+		})
 	case setRepeat:
 		return find(len(repeatOrder), func(i int) bool { return repeatOrder[i] == orDefault(a.status.Repeat, "off") })
 	case setSleep:
@@ -536,13 +619,21 @@ func (a *App) settingChoice(id int) (n, cur int) {
 		return find(len(xfChoices), func(i int) bool { return xfChoices[i] == a.dspOf().Crossfade })
 	case setResampler:
 		return find(len(resamplerModes), func(i int) bool { return resamplerModes[i] == orDefault(a.dspOf().Resampler, "auto") })
+	case setNowViz:
+		return find(len(nowPlayingVizModes), func(i int) bool { return nowPlayingVizModes[i] == a.nowPlayingViz() })
+	case setProgStyle:
+		return find(len(progressStyles), func(i int) bool { return progressStyles[i] == a.progressStyle() })
 	case setThemeColor:
 		cs := themeChoices()
 		return find(len(cs), func(i int) bool { return cs[i].name == a.themeColor() })
 	case setCrossfeed:
 		return find(len(engine.CrossfeedLevels), func(i int) bool { return engine.CrossfeedLevels[i] == a.dspOf().Crossfeed })
+	case setKaraoke:
+		return find(len(engine.KaraokeLevels), func(i int) bool { return engine.KaraokeLevels[i] == a.dspOf().Karaoke })
 	case setRate:
 		return find(len(rateChoices), func(i int) bool { return rateChoices[i] == a.cfg.SampleRate })
+	case setSleepTimer:
+		return find(len(sleepTimerChoices), func(i int) bool { return sleepTimerChoices[i] == a.cfg.UI.SleepTimerMin })
 	}
 	return 0, 0
 }
@@ -567,8 +658,26 @@ func (a *App) settingValue(i int) string {
 		return a.radioDir()
 	case setRescan:
 		return T("rescan_sub")
+	case setFetchLyrics:
+		return T("set_fetch_lyrics_sub")
 	case setLanguage:
 		return langNames[lang]
+	case setFont:
+		f := strings.ToLower(CurrentFont())
+		switch {
+		case f == "" || f == "default":
+			return "Default (Pixel)"
+		case f == "coderscrux" || f == "coders_crux" || strings.HasPrefix(f, "svn-coders-crux"):
+			return "Coder's Crux"
+		case f == "retron2000" || f == "retron_2000" || strings.HasPrefix(f, "svn-retron-2000"):
+			return "Retron 2000"
+		case f == "kvn97" || strings.HasPrefix(f, "kvn-97"):
+			return "KVN-97"
+		case f == "dearpix" || strings.HasPrefix(f, "dearpix"):
+			return "DearPix"
+		default:
+			return strings.TrimSuffix(CurrentFont(), filepath.Ext(CurrentFont()))
+		}
 	case setShuffle:
 		return onOffLabel(a.status.Shuffle)
 	case setRepeat:
@@ -611,10 +720,16 @@ func (a *App) settingValue(i int) string {
 		return T("eq_" + a.dspOf().EQPreset)
 	case setResampler:
 		return T("rs_" + orDefault(a.dspOf().Resampler, "auto"))
+	case setNowViz:
+		return a.nowPlayingVizLabel()
+	case setProgStyle:
+		return a.progressStyleLabel()
 	case setThemeColor:
 		return T("tc_" + a.themeColor())
 	case setCrossfeed:
 		return crossfeedLabel(a.dspOf().Crossfeed)
+	case setKaraoke:
+		return karaokeLabel(a.dspOf().Karaoke)
 	case setDLNAServer:
 		return onOffLabel(a.cfg.DLNA.Server)
 	case setDLNARenderer:
@@ -623,6 +738,8 @@ func (a *App) settingValue(i int) string {
 		return onOffLabel(a.cfg.MPD.On)
 	case setRate:
 		return rateLabel(a.cfg.SampleRate)
+	case setOutput:
+		return a.outputValue()
 	case setScrobble:
 		var names []string
 		if a.cfg.Scrobble.LastFMSession != "" {
@@ -656,6 +773,13 @@ func (a *App) settingValue(i int) string {
 			return T("srv_none")
 		}
 		return N("n_servers", len(a.cfg.Servers))
+	case setSplash:
+		return a.splashValue()
+	case setSleepTimer:
+		if a.cfg.UI.SleepTimerMin == 0 {
+			return T("never")
+		}
+		return fmt.Sprintf("%dm", a.cfg.UI.SleepTimerMin)
 	}
 	return ""
 }
@@ -689,6 +813,9 @@ func settingNames() [setCount]string {
 		T("m_exit_bg"), T("m_exit_stop"), "GitHub", T("srv_title"), T("set_sounds"), T("set_ui_sounds"), T("set_donate"),
 		T("set_close_bg"), T("set_lyrics_web"), T("set_rg"), T("set_eq"), T("set_crossfade"), T("set_scrobble"), T("set_rate"), T("set_update"), T("set_resampler"), T("set_dlna_server"), T("set_dlna_renderer"),
 		T("set_milk_dir"), T("set_radio_dir"), T("set_theme_color"), T("set_crossfeed"), T("al_title"), T("set_vibration"), T("set_mpd"), T("set_orientation"), T("set_vcontrols"),
+		T("set_output"),
+		T("set_font"), T("set_now_viz"), T("set_prog_style"), T("set_splash"), T("set_sleeptimer"),
+		T("set_fetch_lyrics"), T("set_karaoke"),
 	}
 }
 
@@ -846,6 +973,10 @@ func (a *App) drawTile(dst *ebiten.Image, t tileRect, name string, x, y int, sel
 		}
 	case tileChoice:
 		n, cur := a.settingChoice(id)
+		if id == setSleepTimer {
+			a.drawSegmentedControl(dst, id, n, cur, x+5, vy-2, vw, sel)
+			break
+		}
 		if a.drawChips(dst, id, n, cur, x+5, vy-2, vw, sel) {
 			break
 		}
@@ -920,10 +1051,20 @@ func choiceLabel(id, i int) string {
 		return T("rg_" + rgModes[i])
 	case setResampler:
 		return T("rs_" + resamplerModes[i])
+	case setNowViz:
+		return T("np_viz_" + nowPlayingVizModes[i])
+	case setProgStyle:
+		st := progressStyles[i]
+		if st == "nyancat" {
+			return T("prog_nyan")
+		}
+		return T("prog_" + st)
 	case setThemeColor:
 		return T("tc_" + themeChoices()[i].name)
 	case setCrossfeed:
 		return crossfeedLabel(engine.CrossfeedLevels[i])
+	case setKaraoke:
+		return karaokeLabel(engine.KaraokeLevels[i])
 	case setRate:
 		return rateLabel(rateChoices[i])
 	case setCrossfade:
@@ -940,6 +1081,31 @@ func choiceLabel(id, i int) string {
 			return fmt.Sprintf("%ds", s)
 		}
 		return fmt.Sprintf("%dm", s/60)
+	case setFont:
+		fonts := AvailableFonts("")
+		if i >= 0 && i < len(fonts) {
+			f := strings.ToLower(fonts[i])
+			switch {
+			case f == "" || f == "default":
+				return "Default"
+			case f == "coderscrux" || f == "coders_crux" || strings.HasPrefix(f, "svn-coders-crux"):
+				return "Coder's Crux"
+			case f == "retron2000" || f == "retron_2000" || strings.HasPrefix(f, "svn-retron-2000"):
+				return "Retron 2000"
+			case f == "kvn97" || strings.HasPrefix(f, "kvn-97"):
+				return "KVN-97"
+			case f == "dearpix" || strings.HasPrefix(f, "dearpix"):
+				return "DearPix"
+			default:
+				return strings.TrimSuffix(fonts[i], filepath.Ext(fonts[i]))
+			}
+		}
+		return ""
+	case setSleepTimer:
+		if sleepTimerChoices[i] == 0 {
+			return onOffLabel(false)
+		}
+		return fmt.Sprintf("%dm", sleepTimerChoices[i])
 	}
 	return ""
 }
@@ -977,6 +1143,40 @@ func (a *App) drawChips(dst *ebiten.Image, id, n, cur, x, y, w int, sel bool) bo
 	return true
 }
 
+// drawSegmentedControl pinta una fila continua de segmentos tipo Segmented Control
+// para que ocupe todo el ancho disponible w sin desbordarse.
+func (a *App) drawSegmentedControl(dst *ebiten.Image, id, n, cur, x, y, w int, sel bool) {
+	th := a.theme
+	panel(dst, x, y, w, 11, withAlpha(th.Shadow, 0x80))
+	for i := 0; i < n; i++ {
+		x0 := x + i*w/n
+		x1 := x + (i+1)*w/n
+		cw := x1 - x0
+
+		fg := th.Dim
+		if i == cur {
+			bg := withAlpha(th.Accent, 0x90)
+			if sel {
+				bg = th.Accent
+			}
+			panel(dst, x0, y, cw, 11, bg)
+			fg = th.Text
+		} else if i > 0 && i-1 != cur {
+			// Pequeña línea divisoria entre segmentos inactivos contiguos
+			rect(dst, x0, y+2, 1, 7, withAlpha(th.Dim, 0x30))
+		}
+
+		lbl := choiceLabel(id, i)
+		tw := textWidth(lbl, SmallFace)
+		drawText(dst, lbl, SmallFace, x0+max(1, (cw-tw)/2), y+2, fg)
+
+		if d := i - cur; d != 0 {
+			idx := i
+			a.tapZone(x0, y-2, cw, 15, func() { a.changeSetting(id, idx-cur) })
+		}
+	}
+}
+
 // keepPlaying dice si, al cerrarse la interfaz, la música sigue sonando
 // (Ajustes → Al cerrar, seguir sonando). Si no se eligió, sí en el escritorio
 // (cerrar la ventana de un reproductor no suele parar la música) y no en las
@@ -995,4 +1195,31 @@ func crossfeedLabel(level string) string {
 		return onOffLabel(false)
 	}
 	return T("cf_" + level)
+}
+
+// karaokeLabel es el nombre de un nivel de karaoke ("" u "off" es apagado).
+func karaokeLabel(level string) string {
+	switch level {
+	case "light":
+		return T("karaoke_light")
+	case "full":
+		return T("karaoke_full")
+	default:
+		return onOffLabel(false)
+	}
+}
+
+// cycleKaraoke rota entre los niveles de karaoke: off -> light -> full -> off.
+func (a *App) cycleKaraoke() {
+	curr := a.dspOf().Karaoke
+	idx := slices.Index(engine.KaraokeLevels, curr)
+	next := ""
+	if idx >= 0 {
+		next = engine.KaraokeLevels[(idx+1)%len(engine.KaraokeLevels)]
+	} else if len(engine.KaraokeLevels) > 1 {
+		next = engine.KaraokeLevels[1]
+	}
+	a.send("karaoke", orDefault(next, "off"))
+	a.status.DSP.Karaoke = next
+	a.flash(T("set_karaoke") + ": " + karaokeLabel(next))
 }

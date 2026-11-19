@@ -19,6 +19,7 @@ import (
 	"github.com/juanvillacortac/audiofilus/internal/decode"
 	"github.com/juanvillacortac/audiofilus/internal/library"
 	"github.com/juanvillacortac/audiofilus/internal/loudness"
+	"github.com/juanvillacortac/audiofilus/internal/lyrics"
 	"github.com/juanvillacortac/audiofilus/internal/musicbrainz"
 	"github.com/juanvillacortac/audiofilus/internal/tagwrite"
 	"github.com/juanvillacortac/audiofilus/internal/ytm"
@@ -124,6 +125,9 @@ func (a *App) addMetaItems(v *view) {
 	var items []menuItem
 	if s := localTaggable(song); len(s) == 1 {
 		items = append(items, menuItem{label: T("tg_edit"), icon: "pencil", do: func() { a.openTagEditor(s, false) }})
+		if !a.offline {
+			items = append(items, menuItem{label: T("tg_lookup"), icon: "search", do: func() { a.songLookup(s[0]) }})
+		}
 	}
 	if al != nil {
 		if s := localTaggable(al.Songs); len(s) > 0 {
@@ -137,6 +141,32 @@ func (a *App) addMetaItems(v *view) {
 		items = append(items,
 			menuItem{label: T("tg_rg"), icon: "speaker", do: func() { a.computeGain(s, al != nil || v.kind == vArtists, false) }},
 			menuItem{label: T("tg_rg_again"), icon: "speaker", do: func() { a.computeGain(s, al != nil || v.kind == vArtists, true) }})
+	}
+	targetTitle := ""
+	if al != nil {
+		targetTitle = al.Title
+	} else if v.kind == vArtists && len(v.artists) > v.sel {
+		targetTitle = v.artists[v.sel].Name
+	}
+	if len(song) == 1 && lyrics.IsLocal(song[0].Path) {
+		s := song[0]
+		items = append(items, menuItem{
+			label: T("lyrics_download_current"),
+			icon:  "note",
+			do: func() {
+				if lyrics.HasLyrics(s.Path) {
+					a.flash(T("lyrics_already_complete"))
+				} else {
+					a.fetchMissingLyrics([]Song{s}, s.Title)
+				}
+			},
+		})
+	} else if len(all) > 0 {
+		items = append(items, menuItem{
+			label: T("lyrics_download_missing"),
+			icon:  "note",
+			do:    func() { a.fetchMissingLyrics(all, targetTitle) },
+		})
 	}
 	a.menu.items = append(a.menu.items, items...)
 }

@@ -2,7 +2,23 @@
 /dist/
 # libgme compilada (tools/libgme/build.sh)
 /build/
+/bin/
 /audiofilus
+*.aarch64
+muos/audiofilus/audiofilus
+muos/audiofilus/audiofilus.aarch64
+
+# Compiled binaries and archives in fn-switch
+fn-switch/brick-config*
+fn-switch/fn-daemon*
+fn-switch/*.zip
+fn-switch/port/brickprofnconfig/brick-config*
+fn-switch/port/brickprofnconfig/fn-daemon*
+
+# Firmware dumps & large blobs
+*.dtb
+*.cpio
+*.tmp
 
 # Configuración y estado de una ejecución local (viven junto al binario)
 /run/

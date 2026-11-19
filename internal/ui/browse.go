@@ -88,6 +88,11 @@ func (a *App) rootView(tab int) *view {
 		if l == a.local { // las que salen solas, en la biblioteca de aquí
 			pls = append(a.autoPlaylists(), pls...)
 		}
+		for _, pl := range pls {
+			if pl.smart > 0 && pl.Songs == nil {
+				a.smartFill(pl)
+			}
+		}
 		return &view{kind: vPlaylists, title: T("tab_lists"), playlists: pls}
 	case tabFolders:
 		if len(l.Roots) == 1 {
@@ -207,7 +212,6 @@ func (a *App) updateLibrary() {
 	}
 	v := a.cur()
 	n := v.count()
-	nested := len(a.stacks[a.libTab]) > 1
 	switch {
 	case in.Pressed(ActBack):
 		if !a.pop() {
@@ -242,15 +246,7 @@ func (a *App) updateLibrary() {
 		case in.Repeat(ActRight):
 			v.sel = min(n-1, v.sel+1)
 		case in.Repeat(ActLeft):
-			if v.sel%cols == 0 {
-				if nested {
-					a.pop()
-				} else {
-					a.tabFocus = true
-				}
-			} else {
-				v.sel--
-			}
+			v.sel = max(0, v.sel-1)
 		case in.Repeat(ActDown):
 			v.sel = min(n-1, v.sel+cols)
 		case in.Repeat(ActUp):
@@ -263,12 +259,8 @@ func (a *App) updateLibrary() {
 		v.sel = min(n-1, v.sel+1)
 	case in.Repeat(ActUp):
 		v.sel = max(0, v.sel-1)
-	case in.Pressed(ActLeft):
-		if nested {
-			a.pop()
-		} else {
-			a.tabFocus = true
-		}
+	case in.Repeat(ActLeft) && n > 0:
+		v.sel = max(0, v.sel-10) // salto de página hacia atrás
 	case in.Repeat(ActRight) && n > 0:
 		v.sel = min(n-1, v.sel+10) // salto de página
 	}
@@ -339,7 +331,11 @@ func (a *App) itemSongs(v *view) []Song {
 	case vArtists:
 		return v.artists[v.sel].AllSongs()
 	case vPlaylists:
-		return v.playlists[v.sel].Songs
+		pl := v.playlists[v.sel]
+		if pl.smart > 0 && pl.Songs == nil {
+			a.smartFill(pl)
+		}
+		return pl.Songs
 	case vStats:
 		if p := v.stats[v.sel].path; p != "" {
 			return []Song{a.songFor(p, "", "", "")}
@@ -487,6 +483,9 @@ func (a *App) rowFor(v *view, i int) listRow {
 		pl := v.playlists[i]
 		if pl.stats {
 			return listRow{"stats", pl.Name, "", false}
+		}
+		if pl.smart > 0 && pl.Songs == nil {
+			a.smartFill(pl)
 		}
 		return listRow{orDefault(pl.icon, "note"), pl.Name, N("n_songs", len(pl.Songs)), false}
 	case vStats:

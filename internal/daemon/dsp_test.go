@@ -41,3 +41,24 @@ func TestDSPCommandsPEQ(t *testing.T) {
 		}
 	}
 }
+
+// TestDSPCommandsKaraoke comprueba que el comando karaoke acepte los niveles
+// válidos y rechace los inválidos.
+func TestDSPCommandsKaraoke(t *testing.T) {
+	d := engine.DSP{}.Normalize()
+	d, err := dspCommand(d, "karaoke", []string{"light"})
+	if err != nil || d.Karaoke != "light" {
+		t.Fatalf("karaoke light: %v %q", err, d.Karaoke)
+	}
+	d, err = dspCommand(d, "karaoke", []string{"full"})
+	if err != nil || d.Karaoke != "full" {
+		t.Fatalf("karaoke full: %v %q", err, d.Karaoke)
+	}
+	d, err = dspCommand(d, "karaoke", []string{"off"})
+	if err != nil || d.Karaoke != "" {
+		t.Fatalf("karaoke off: %v %q", err, d.Karaoke)
+	}
+	if _, err := dspCommand(d, "karaoke", []string{"invalid"}); err == nil {
+		t.Errorf("karaoke invalid level accepted")
+	}
+}

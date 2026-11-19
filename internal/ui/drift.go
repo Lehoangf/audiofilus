@@ -564,6 +564,7 @@ func clipNear(out, pts []v3, near float64) []v3 {
 func (a *App) drawDriftScene(img *ebiten.Image) {
 	if a.drift == nil {
 		a.drift = newDrift()
+		a.drift.cam = a.vis.variant[visDrift]
 	}
 	d := a.drift
 	lw, lh := img.Bounds().Dx(), img.Bounds().Dy()

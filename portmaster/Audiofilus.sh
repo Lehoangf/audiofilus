@@ -20,6 +20,15 @@ source $controlfolder/control.txt
 get_controls
 
 GAMEDIR="/$directory/ports/audiofilus"
+if [ -z "$directory" ] || [ ! -d "$GAMEDIR" ]; then
+  if [ -d "/userdata/roms/ports/audiofilus" ]; then
+    GAMEDIR="/userdata/roms/ports/audiofilus"
+  elif [ -d "/roms/ports/audiofilus" ]; then
+    GAMEDIR="/roms/ports/audiofilus"
+  else
+    GAMEDIR="$(cd "$(dirname "$0")/audiofilus" 2>/dev/null && pwd)"
+  fi
+fi
 
 # The binary for this machine: audiofilus.aarch64 or .x86_64. It is the UI, the
 # service and the command line in one: the UI starts the service by running
@@ -33,7 +42,7 @@ esac
 BINARY="audiofilus.${ARCH}"
 
 cd "$GAMEDIR"
-chmod +x "$BINARY" 2>/dev/null
+chmod -R +x "$BINARY" ./yt-dlp* ./libs.* 2>/dev/null || true
 > "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
 
 # The settings and the library cache live next to the binaries
@@ -77,8 +86,13 @@ LAUNCH=/tmp/audiofilus-launch.json
 RESTART=/tmp/audiofilus-restart
 rm -f "$LAUNCH" "$RESTART"
 
+command -v pm_platform_helper >/dev/null 2>&1 || pm_platform_helper() { :; }
+command -v pm_finish >/dev/null 2>&1 || pm_finish() { :; }
+
 # gptokeyb only provides PortMaster's exit hotkey (Select+Start).
-$GPTOKEYB "$BINARY" &
+if [ -n "$GPTOKEYB" ]; then
+  [ -n "$GPTOKEYB" ] && $GPTOKEYB "$BINARY" &
+fi
 pm_platform_helper "$GAMEDIR/$BINARY"
 while :; do
   ./"$BINARY" "$@"
@@ -91,7 +105,7 @@ while :; do
   $ESUDO pkill -x gptokeyb 2>/dev/null
   $ESUDO pkill -x gptokeyb2 2>/dev/null
   ./"$BINARY" launch "$LAUNCH"
-  $GPTOKEYB "$BINARY" &
+  [ -n "$GPTOKEYB" ] && $GPTOKEYB "$BINARY" &
 done
 
 pm_finish

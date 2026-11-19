@@ -79,7 +79,8 @@ type Engine struct {
 
 	mu      sync.Mutex
 	q       *queue.Queue
-	qver    int // sube con cada cambio de la cola (Status.QueueVersion)
+	qver    int    // sube con cada cambio de la cola (Status.QueueVersion)
+	qgen    uint64 // generación de la carga actual: solo sube en Load/Clear
 	src     decode.Source
 	rs      *resample.Reader
 	track   library.Track
@@ -89,6 +90,11 @@ type Engine struct {
 	fbuf    []float32
 	boost   float32 // el refuerzo por encima del 100 % (1 = ninguno), con limitador
 	limit   limiter
+	// cut es lo que baja el volumen de salida por software (0 = nada, 1 =
+	// silencio): hace de volumen del sistema cuando este no llega a la
+	// salida, con un DAC USB por ALSA directo, donde los botones de la
+	// consola mueven el control de la tarjeta interna.
+	cut float32
 	// El sonido (dsp.go): la configuración, el ecualizador, la ganancia de
 	// ReplayGain de lo que suena y sus etiquetas (para recalcularla).
 	dsp DSP
@@ -124,9 +130,10 @@ type Engine struct {
 	scr      *scratch
 	// speed es la velocidad de reproducción (1: normal) y st, el que la
 	// cambia sin tocar el tono (stretch.go), o nil a velocidad normal.
-	speed float64
-	st    *stretcher
-	xfeed crossfeed // para audífonos (crossfeed.go)
+	speed   float64
+	st      *stretcher
+	xfeed   crossfeed // para audífonos (crossfeed.go)
+	karaoke karaoke   // para atenuar la voz central (karaoke.go)
 
 	// OpenRemote abre una pista remota ("subsonic://...", "radio://..."):
 	// ready si ya puede sonar; si no, empieza a prepararla (bajarla,
@@ -185,8 +192,12 @@ func New(sampleRate int, buffer time.Duration) (*Engine, error) {
 // oto caería a ALSA y chocaría con PipeWire.
 func usePulseSocket() {
 	// En muOS el audio es PipeWire (por ALSA), y su socket está en /run.
-	if _, err := os.Stat("/run/muos"); err == nil && os.Getenv("XDG_RUNTIME_DIR") == "" {
-		os.Setenv("XDG_RUNTIME_DIR", "/run")
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		if _, err := os.Stat("/run/muos"); err == nil {
+			os.Setenv("XDG_RUNTIME_DIR", "/run")
+		} else if _, err := os.Stat("/opt/muos"); err == nil {
+			os.Setenv("XDG_RUNTIME_DIR", "/run")
+		}
 	}
 	if os.Getenv("PULSE_SERVER") != "" {
 		return
@@ -306,11 +317,18 @@ func (e *Engine) Read(p []byte) (int, error) {
 			e.setPlayingLocked(false)
 			break
 		}
+		if e.waiting != "" || e.rs == nil {
+			clear(buf[n:])
+			n = len(buf)
+			break
+		}
 	}
 	e.eq.process(buf[:n])
 	e.xfeed.process(buf[:n])
-	e.limit.process(buf[:n], e.boost, len(e.eq.bands) > 0 || e.gain > 1)
+	e.karaoke.process(buf[:n])
+	e.limit.process(buf[:n], e.boost, len(e.eq.bands) > 0 || e.gain > 1 || e.karaoke.on)
 	e.meter.add(buf[:n], time.Now().Add(e.meter.latency), e.rate)
+	gainBuf(buf[:n], 1-e.cut) // después del medidor: como un volumen de hardware
 	for i := 0; i < n; i++ {
 		binary.LittleEndian.PutUint32(p[i*4:], math.Float32bits(buf[i]))
 	}
@@ -348,7 +366,9 @@ func (e *Engine) apply(op func()) {
 	playing := e.playing
 	e.mu.Unlock()
 	if playing {
-		_ = e.ctx.Resume()
+		if e.ctx != nil {
+			_ = e.ctx.Resume()
+		}
 		e.player.Play()
 	}
 }
@@ -438,6 +458,39 @@ func (e *Engine) announceLocked() {
 	})
 }
 
+// UpdateTrackMetadata actualiza el título, artista y álbum de la pista en reproducción
+// si coincide con la ruta especificada (por ejemplo, cuando se resuelven metadatos remotos de Spotify).
+func (e *Engine) UpdateTrackMetadata(path, title, artist, album string) {
+	e.mu.Lock()
+	matches := e.track.Path == path
+	if !matches && strings.HasPrefix(e.track.Path, "spotify") && strings.HasPrefix(path, "spotify") {
+		id1 := strings.TrimPrefix(strings.TrimPrefix(e.track.Path, "spotify://track/"), "spotify:track:")
+		id2 := strings.TrimPrefix(strings.TrimPrefix(path, "spotify://track/"), "spotify:track:")
+		matches = id1 != "" && id1 == id2
+	}
+	if !matches {
+		e.mu.Unlock()
+		return
+	}
+	if title != "" {
+		e.track.Title = title
+	}
+	if artist != "" {
+		e.track.Artist = artist
+	}
+	if album != "" {
+		e.track.Album = album
+	}
+	t := e.track
+	e.mu.Unlock()
+
+	e.emit(func() {
+		if e.OnTrackChanged != nil {
+			e.OnTrackChanged(t)
+		}
+	})
+}
+
 // closeSourceLocked cierra el archivo actual (y el que se estaba
 // apagando en un fundido: un cambio a mano corta en seco).
 func (e *Engine) closeSourceLocked() {
@@ -502,9 +555,24 @@ func (e *Engine) setPlayingLocked(on bool) {
 
 // Load reemplaza la cola y se coloca en start, at segundos; suena si play.
 func (e *Engine) Load(tracks []string, start int, at float64, play bool) {
+	e.loadWith(tracks, start, at, play, nil)
+}
+
+// LoadGen reemplaza la cola como Load y devuelve su generación resultante.
+func (e *Engine) LoadGen(tracks []string, start int, at float64, play bool) uint64 {
+	var gen uint64
+	e.loadWith(tracks, start, at, play, &gen)
+	return gen
+}
+
+func (e *Engine) loadWith(tracks []string, start int, at float64, play bool, gen *uint64) {
 	e.apply(func() {
 		e.q.Set(tracks, start)
 		e.qver++
+		e.qgen++
+		if gen != nil {
+			*gen = e.qgen
+		}
 		e.closeSourceLocked()
 		if !e.openLocked() {
 			e.setPlayingLocked(false)
@@ -525,9 +593,18 @@ func (e *Engine) Load(tracks []string, start int, at float64, play bool) {
 	// reanudar (pasaba al elegir un episodio o una radio con la música en
 	// pausa). Despertarla, tocar y subir el volumen (fadeIn cancela además el
 	// fundido de la pausa si aún no terminó).
-	_ = e.ctx.Resume()
+	if e.ctx != nil {
+		_ = e.ctx.Resume()
+	}
 	e.player.Play()
 	e.fadeIn()
+}
+
+// QueueGen devuelve la generación actual de la cola (solo cambia en Load/Clear).
+func (e *Engine) QueueGen() uint64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.qgen
 }
 
 // Append añade canciones al final de la cola.
@@ -538,12 +615,39 @@ func (e *Engine) Append(tracks []string) {
 	e.qver++
 }
 
+// AppendIfGen añade pistas si la cola sigue en la generación gen, y refresca
+// Prefetch si la pista siguiente cambió.
+func (e *Engine) AppendIfGen(gen uint64, tracks []string) bool {
+	if len(tracks) == 0 {
+		return e.QueueGen() == gen
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.qgen != gen {
+		return false
+	}
+	prevNext := e.q.Peek()
+	e.q.Append(tracks)
+	e.qver++
+	next := e.q.Peek()
+	if e.Prefetch != nil && next != "" && next != prevNext {
+		prefetch := e.Prefetch
+		e.emit(func() { prefetch(next) })
+	}
+	return true
+}
+
 // PlayNext encola una canción justo después de la actual.
 func (e *Engine) PlayNext(track string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.q.PlayNext(track)
 	e.qver++
+	next := e.q.Peek()
+	if e.Prefetch != nil && next != "" {
+		prefetch := e.Prefetch
+		e.emit(func() { prefetch(next) })
+	}
 }
 
 // Play reanuda (o empieza) la reproducción.
@@ -566,7 +670,9 @@ func (e *Engine) Play() {
 	ended := e.ended
 	e.setPlayingLocked(true)
 	e.mu.Unlock()
-	_ = e.ctx.Resume()
+	if e.ctx != nil {
+		_ = e.ctx.Resume()
+	}
 	// Vuelve a subir: desde donde iba si se estaba apagando, y si no desde 0.
 	defer e.fadeIn()
 	if ended {
@@ -607,7 +713,9 @@ func (e *Engine) Pause() {
 		if still {
 			e.player.Pause()
 			// En pausa se deja dormir el dispositivo de audio.
-			_ = e.ctx.Suspend()
+			if e.ctx != nil {
+				_ = e.ctx.Suspend()
+			}
 		}
 	}()
 }
@@ -627,7 +735,9 @@ func (e *Engine) PauseNow() {
 	e.mu.Unlock()
 	e.player.SetVolume(0)
 	e.player.Pause()
-	_ = e.ctx.Suspend()
+	if e.ctx != nil {
+		_ = e.ctx.Suspend()
+	}
 }
 
 // rampVolume lleva el volumen del player de from a to en sec segundos, por
@@ -780,6 +890,7 @@ func (e *Engine) Clear() {
 	e.apply(func() {
 		e.q.Set(nil, 0)
 		e.qver++
+		e.qgen++
 		e.track = library.Track{} // ya no suena nada (ni para Status)
 		e.closeSourceLocked()
 		e.setPlayingLocked(false)
@@ -807,6 +918,11 @@ func (e *Engine) SetShuffle(on bool) {
 	e.q.SetShuffle(on)
 	// En "auto", ReplayGain va por canción en aleatorio y por disco en orden.
 	e.gain = replayGain(e.dsp, e.gainTags, e.gainOK, on)
+	next := e.q.Peek()
+	if e.Prefetch != nil && next != "" {
+		prefetch := e.Prefetch
+		e.emit(func() { prefetch(next) })
+	}
 }
 
 // SetRepeat cambia el modo de repetición.
@@ -830,6 +946,15 @@ func (e *Engine) SetVolume(v float64) {
 	if playing {
 		e.player.SetVolume(math.Min(v, 1))
 	}
+}
+
+// SetMaster pone el volumen de salida por software (0..1), el que hace de
+// volumen del sistema cuando este no llega a la salida (ver cut).
+func (e *Engine) SetMaster(v float64) {
+	v = math.Max(0, math.Min(v, 1))
+	e.mu.Lock()
+	e.cut = float32(1 - v*v) // curva cuadrática: el oído no es lineal
+	e.mu.Unlock()
 }
 
 // SetSpeed cambia la velocidad de reproducción (de 0,5 a 3; 1 es normal) sin
@@ -872,6 +997,9 @@ func (e *Engine) SetDSP(d DSP) {
 	e.eq.setDSP(d, e.rate)
 	if d.Crossfeed != e.xfeed.level || e.xfeed.rateAt != e.rate {
 		e.xfeed.set(d.Crossfeed, e.rate)
+	}
+	if d.Karaoke != e.karaoke.level || e.karaoke.rateAt != e.rate {
+		e.karaoke.set(d.Karaoke, e.rate)
 	}
 	e.gain = replayGain(d, e.gainTags, e.gainOK, e.q.Shuffled())
 	if d.Crossfade == 0 {
@@ -1014,7 +1142,7 @@ func (e *Engine) Idle() {
 	e.mu.Lock()
 	playing := e.playing
 	e.mu.Unlock()
-	if !playing {
+	if !playing && e.ctx != nil {
 		_ = e.ctx.Suspend()
 	}
 }
@@ -1023,7 +1151,7 @@ func (e *Engine) Idle() {
 // encima de la música. Si la salida estaba parada (en pausa), se enciende
 // para el efecto y se vuelve a parar al terminar si sigue en pausa.
 func (e *Engine) PlaySFX(b []byte, d time.Duration) {
-	if len(b) == 0 {
+	if len(b) == 0 || e.ctx == nil {
 		return
 	}
 	_ = e.ctx.Resume()
@@ -1034,7 +1162,7 @@ func (e *Engine) PlaySFX(b []byte, d time.Duration) {
 		e.mu.Lock()
 		playing := e.playing
 		e.mu.Unlock()
-		if !playing {
+		if !playing && e.ctx != nil {
 			_ = e.ctx.Suspend()
 		}
 	})

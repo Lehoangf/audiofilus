@@ -12,12 +12,14 @@ const (
 	pickMusic pickTarget = iota
 	pickMilkDrop
 	pickRadio
+	pickSplashImg
 )
 
 // pickedDir guarda la carpeta elegida para MilkDrop o la radio y vuelve a
 // Ajustes. MilkDrop, si ya estaba abierto, busca los presets de la nueva; la
 // radio lee sus listas al abrirse.
 func (a *App) pickedDir(dir string) {
+	wasSplash := a.pickFor == pickSplashImg
 	switch a.pickFor {
 	case pickMilkDrop:
 		a.cfg.UI.MilkDropDir = dir
@@ -28,8 +30,15 @@ func (a *App) pickedDir(dir string) {
 		}
 	case pickRadio:
 		a.cfg.UI.RadioDir = dir
+	case pickSplashImg:
+		a.cfg.UI.SplashImage = dir
+		a.loadSplashImage()
+		a.flash(T("splash_img") + ": " + dir)
 	}
 	a.saveConfig()
 	a.pickFor = pickMusic
 	a.mode = modeMain
+	if wasSplash {
+		a.openSplashMenu()
+	}
 }

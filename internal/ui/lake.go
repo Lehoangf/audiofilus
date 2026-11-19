@@ -237,6 +237,7 @@ func (a *App) stepLake(dt float64) {
 func (a *App) drawLakeScene(img *ebiten.Image) {
 	if a.lake == nil {
 		a.lake = newLake()
+		a.lake.cam = a.vis.variant[visLake]
 	}
 	l := a.lake
 	lw, lh := img.Bounds().Dx(), img.Bounds().Dy()

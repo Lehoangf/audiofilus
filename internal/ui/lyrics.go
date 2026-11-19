@@ -48,6 +48,15 @@ type lyricsView struct {
 	// un poco y vuelve).
 	vel   float64
 	lastT float64 // el último dibujo: el muelle avanza por tiempo, no por cuadros
+
+	// Estado independiente para la mini letra en Reproduciendo (tiene otro
+	// ancho y otra altura que la vista completa).
+	miniWrapW  int
+	miniRows   [][]string
+	miniScroll float64
+	miniShown  lyrics.Lyrics
+	miniVel    float64
+	miniLastT  float64
 }
 
 // lyricsResult es lo que devuelve una búsqueda de letra.
@@ -76,8 +85,9 @@ func (a *App) lyricsFinder() *lyrics.Finder {
 	if a.lyrFinder == nil {
 		a.lyrFinder = &lyrics.Finder{Store: lyrics.NewStore(filepath.Join(a.paths.Data, "lyrics"))}
 	}
-	a.lyrFinder.Web = nil
-	if !a.cfg.UI.LyricsOffline && !a.offline {
+	if a.cfg.UI.LyricsOffline || a.offline {
+		a.lyrFinder.Web = nil
+	} else if a.lyrFinder.Web == nil {
 		a.lyrFinder.Web = &lyrics.LRCLIB{HTTP: &http.Client{Timeout: 15 * time.Second}}
 	}
 	return a.lyrFinder
@@ -131,6 +141,12 @@ func (a *App) openLyrics() {
 	a.lyr.manualAt = -100
 }
 
+// wantLyrics dice si hace falta tener buscada la letra de lo que suena: con la
+// vista completa abierta o con la mini letra activada en Reproduciendo.
+func (a *App) wantLyrics() bool {
+	return a.lyricsOn || (a.cfg.UI.NowPlayingLyrics && a.screen == NowPlaying)
+}
+
 // updateLyricsFetch busca la letra de lo que suena si cambió de canción (con
 // la vista abierta) y recoge las respuestas.
 func (a *App) updateLyricsFetch() {
@@ -149,7 +165,7 @@ func (a *App) updateLyricsFetch() {
 		a.radioKey, a.radioAt = key, a.t
 	}
 	key := a.lyricsKey()
-	if !a.lyricsOn || a.playingSong.Path == "" || a.lyr.path == key {
+	if !a.wantLyrics() || a.playingSong.Path == "" || a.lyr.path == key {
 		return
 	}
 	a.lyr = lyricsView{path: key, gen: a.lyr.gen + 1, manualAt: -100}
@@ -181,6 +197,7 @@ func (a *App) lyricsDone(r lyricsResult) {
 		return
 	}
 	a.lyr.loading, a.lyr.opt, a.lyr.rows, a.lyr.scroll = false, r.opt, nil, 0
+	a.lyr.miniRows, a.lyr.miniScroll, a.lyr.miniVel = nil, 0, 0
 }
 
 // lyricsLabel es de dónde sale la letra, para la cabecera.
@@ -254,6 +271,25 @@ func (a *App) openLyricsMenu() {
 			value:  func() string { return offsetLabel(a.lyr.offset) },
 			active: func() bool { return a.lyr.offset != 0 }})
 	}
+	m.items = append(m.items, menuItem{
+		label:  T("set_karaoke"),
+		icon:   "mic",
+		active: func() bool { return a.dspOf().Karaoke != "" },
+		value:  func() string { return karaokeLabel(a.dspOf().Karaoke) },
+		do: func() {
+			a.cycleKaraoke()
+		},
+	})
+	m.items = append(m.items, menuItem{
+		label:  T("lyr_now_playing"),
+		icon:   "lyrics",
+		active: func() bool { return a.cfg.UI.NowPlayingLyrics },
+		value:  func() string { return onOffLabel(a.cfg.UI.NowPlayingLyrics) },
+		do: func() {
+			a.cfg.UI.NowPlayingLyrics = !a.cfg.UI.NowPlayingLyrics
+			a.saveConfig()
+		},
+	})
 	m.items = append(m.items, menuItem{label: T("lyr_hide"), icon: "arrow_l", do: func() { a.lyricsOn = false }})
 	a.menu = m
 }
@@ -396,33 +432,71 @@ func (a *App) drawLyrics(dst *ebiten.Image) {
 		return
 	}
 
-	// Partida en filas para este ancho (una vez por letra y ancho), con los
-	// huecos instrumentales como líneas vacías (WithBreaks).
-	lw := w - 2*margin - 12
-	fresh := l.rows == nil || l.wrapW != lw // recién abierta: sin viaje desde arriba
-	if fresh {
-		l.shown = ly.WithBreaks()
+	// El dedo (o la rueda) mueve la letra sin sincronizar, como una lista.
+	if !ly.Synced {
+		a.scrollArea(margin, y0, w-2*margin, y1-y0, a.scrollLyrics)
 	}
-	ly = l.shown
+	a.drawLyricsBlock(dst, ly, margin, y0, w-2*margin, y1-y0, 56, true, &l.wrapW, &l.rows, &l.shown, &l.scroll, &l.vel, &l.lastT)
+	a.drawLyricsHints(dst)
+}
+
+// lyricsMetrics devuelve el alto de fila, el hueco entre líneas y el ajuste
+// vertical según el modo: en el hueco compacto de Now Playing (~54 px)
+// aprieta un poco para que quepan tres líneas completas sin recortar la de arriba.
+func lyricsMetrics(mini bool) (rowH, gap, ryOff int) {
+	if mini {
+		return 14, 2, 3
+	}
+	return lyrRowH, lyrGap, -2
+}
+
+// drawLyricsBlock pinta las líneas de la letra dentro del rectángulo (x, y,
+// w, h), con ajuste de líneas, desplazamiento suave con muelle, karaoke letra
+// a letra y desvanecimiento en los bordes. Lo comparten la vista completa y la
+// mini letra de Reproduciendo.
+func (a *App) drawLyricsBlock(
+	dst *ebiten.Image,
+	ly lyrics.Lyrics,
+	x, y, w, h int,
+	fadeMax float64,
+	allowManual bool,
+	wrapW *int,
+	rows *[][]string,
+	shown *lyrics.Lyrics,
+	scroll, vel, lastT *float64,
+) {
+	if BigFace == nil || w <= 16 || h <= 8 {
+		return
+	}
+	th := a.theme
+	l := &a.lyr
+	mini := !allowManual
+	rowH, gap, ryOff := lyricsMetrics(mini)
+	lw := max(8, w-12)
+	fresh := *rows == nil || *wrapW != lw // recién abierta: sin viaje desde arriba
 	if fresh {
-		l.wrapW, l.rows = lw, make([][]string, len(ly.Lines))
+		*shown = ly.WithBreaks()
+	}
+	ly = *shown
+	if fresh {
+		*wrapW, *rows = lw, make([][]string, len(ly.Lines))
 		for i, ln := range ly.Lines {
-			l.rows[i] = wrapLines(ln.Text, BigFace, lw)
-			if len(l.rows[i]) == 0 {
-				l.rows[i] = []string{""}
+			(*rows)[i] = wrapLines(ln.Text, BigFace, lw)
+			if len((*rows)[i]) == 0 {
+				(*rows)[i] = []string{""}
 			}
 		}
 	}
-	tops := make([]int, len(l.rows)+1)
-	for i, r := range l.rows {
+	tops := make([]int, len(*rows)+1)
+	for i, r := range *rows {
 		// Entre líneas, un poco de aire: así una partida en dos filas no
 		// parece dos.
-		tops[i+1] = tops[i] + len(r)*lyrRowH + lyrGap
+		tops[i+1] = tops[i] + len(r)*rowH + gap
 		if len(r) == 1 && r[0] == "" && !ly.Synced {
-			tops[i+1] = tops[i] + lyrRowH/2 // una línea en blanco, media fila
+			tops[i+1] = tops[i] + rowH/2 // una línea en blanco, media fila
 		}
 	}
-	total, view := tops[len(l.rows)], y1-y0
+	total, view := tops[len(*rows)], h
 	pos := a.lyricsPos()
 	cur := ly.Index(pos)
 
@@ -435,38 +509,39 @@ func (a *App) drawLyrics(dst *ebiten.Image) {
 		want = float64(tops[cur]+(tops[cur+1]-tops[cur])/2) - float64(view)/2
 	case ly.Synced:
 		want = -float64(view) / 3
-	case a.t-l.manualAt < lyrManual:
+	case allowManual && a.t-l.manualAt < lyrManual:
 		want = l.manual
 	case a.duration > 0:
-		want = (a.shownPos/a.duration)*float64(total-view+lyrRowH*2) - lyrRowH
+		want = (a.shownPos/a.duration)*float64(total-view+rowH*2) - float64(rowH)
 	}
 	if !ly.Synced {
-		want = math.Max(-lyrRowH, math.Min(want, float64(max(0, total-view+lyrRowH))))
-	}
-	// El dedo (o la rueda) mueve la letra sin sincronizar, como una lista.
-	if !ly.Synced {
-		a.scrollArea(margin, y0, w-2*margin, view, a.scrollLyrics)
+		want = math.Max(-float64(rowH), math.Min(want, float64(max(0, total-view+rowH))))
 	}
 	// Un muelle: arranca, se pasa un pelo y vuelve, como un carrusel. Avanza
 	// en pasos de 1/60 s por el tiempo que pasó, así va igual a cualquier
 	// ritmo de cuadros (las animaciones de la web van a 20).
-	steps := min(30, max(1, int(math.Round((a.t-l.lastT)*60))))
-	l.lastT = a.t
+	steps := min(30, max(1, int(math.Round((a.t-*lastT)*60))))
+	*lastT = a.t
 	for range steps {
-		l.vel = (l.vel + (want-l.scroll)*0.07) * 0.74
-		l.scroll += l.vel
+		*vel = (*vel + (want-*scroll)*0.07) * 0.74
+		*scroll += *vel
 	}
-	if fresh || (math.Abs(want-l.scroll) < 0.3 && math.Abs(l.vel) < 0.05) {
-		l.scroll, l.vel = want, 0
+	if fresh || (math.Abs(want-*scroll) < 0.3 && math.Abs(*vel) < 0.05) {
+		*scroll, *vel = want, 0
 	}
 
 	// Lo que mide la franja que se desvanece arriba y abajo.
-	fade := math.Min(float64(view)/3, 56)
+	fade := math.Max(1, math.Min(float64(view)/3, fadeMax))
 	b := dst.Bounds()
-	clip := dst.SubImage(image.Rect(b.Min.X, b.Min.Y+y0, b.Max.X, b.Min.Y+y1)).(*ebiten.Image)
-	for i, rows := range l.rows {
-		top := y0 + tops[i] - int(math.Round(l.scroll))
-		if top+len(rows)*lyrRowH < y0 || top > y1 {
+	clipRect := image.Rect(b.Min.X+x, b.Min.Y+y, b.Min.X+x+w, b.Min.Y+y+h).Intersect(b)
+	if clipRect.Empty() {
+		return
+	}
+	clip := dst.SubImage(clipRect).(*ebiten.Image)
+	y0, y1 := y, y+h
+	for i, lineRows := range *rows {
+		top := y0 + tops[i] - int(math.Round(*scroll))
+		if top+len(lineRows)*rowH < y0 || top > y1 {
 			continue
 		}
 		c := th.Text
@@ -492,38 +567,41 @@ func (a *App) drawLyrics(dst *ebiten.Image) {
 			start := ly.Lines[i].At
 			frac = math.Max(0, math.Min(1, float64(pos-start)/float64(max(1, end-start))))
 		}
-		widths, sum := make([]int, len(rows)), 0
-		for j, r := range rows {
+		widths, sum := make([]int, len(lineRows)), 0
+		for j, r := range lineRows {
 			widths[j] = textWidth(r, BigFace)
 			sum += widths[j]
 		}
 		lit := int(frac * float64(sum))
-		for j, r := range rows {
-			x := margin + 6 + (lw-widths[j])/2
-			y := top + j*lyrRowH - 2 // las mayúsculas, centradas en la fila
+		for j, r := range lineRows {
+			rx := x + 6 + (lw-widths[j])/2
+			ry := top + j*rowH + ryOff
+			if mini && (ry < y0+5 || ry+bigCap+3 > y1) {
+				lit -= widths[j]
+				continue
+			}
 			// Como un carrusel: arriba y abajo las filas se desvanecen, en
 			// cuatro pasos (como el texto largo, ver drawTextW).
-			mid := y + bigCapTop + bigCap/2
+			mid := ry + bigCapTop + bigCap/2
 			f := math.Min(1, float64(min(mid-y0, y1-mid))/fade)
 			if f = math.Ceil(f*4) / 4; f <= 0 {
 				lit -= widths[j]
 				continue
 			}
-			alpha := func(c color.RGBA) color.RGBA { return withAlpha(c, uint8(float64(c.A)*f)) }
+			alpha := func(col color.RGBA) color.RGBA { return withAlpha(col, uint8(float64(col.A)*f)) }
 			if ly.Synced && r == "" {
-				a.drawBreak(clip, margin+6+lw/2, y+bigCapTop+bigCap/2, frac, alpha)
+				a.drawBreak(clip, x+6+lw/2, ry+bigCapTop+bigCap/2, frac, alpha)
 				continue
 			}
 			if frac >= 0 {
 				// La que suena va letra a letra (ver drawKaraokeRow).
-				a.drawKaraokeRow(clip, r, x, y, lit, alpha)
+				a.drawKaraokeRow(clip, r, rx, ry, lit, alpha)
 				lit -= widths[j]
 				continue
 			}
-			drawText(clip, r, BigFace, x, y, alpha(c))
+			drawText(clip, r, BigFace, rx, ry, alpha(c))
 		}
 	}
-	a.drawLyricsHints(dst)
 }
 
 // drawKaraokeRow pinta una fila de la línea que suena, letra a letra: se
@@ -646,4 +724,92 @@ func (a *App) drawLyricsHints(dst *ebiten.Image) {
 	}
 	hints = append(hints, hint{"START", T("h_more")}, hint{"B", T("h_back")})
 	a.drawHints(dst, hints)
+}
+
+// miniVizAlpha es la opacidad del visualizador cuando queda detrás de la mini
+// letra en Reproduciendo, para que las barras no tapen el texto.
+const miniVizAlpha = 0.26
+
+// drawNowPlayingBottom pinta el bloque fijo inferior de Reproduciendo: el
+// visualizador, la mini letra encima o el estado discreto cuando no hay letra
+// y el visualizador está apagado.
+func (a *App) drawNowPlayingBottom(dst *ebiten.Image, x, y, w, h int) {
+	if h < 8 || w < 16 {
+		return
+	}
+	if !a.cfg.UI.NowPlayingLyrics {
+		a.drawSpectrum(dst, x, y, w, h)
+		return
+	}
+	l := &a.lyr
+	ready := l.path == a.lyricsKey() && !l.loading
+	ly := l.opt.Lyrics
+	hasLyrics := ready && !a.noLyrics() && !ly.Empty() && !ly.Instrumental
+	if !hasLyrics {
+		// Sin letra, cargando o instrumental: si el visualizador está activo, se
+		// muestra normal sin atenuar; si está apagado, una nota discreta.
+		if a.nowPlayingViz() != "off" {
+			a.drawSpectrum(dst, x, y, w, h)
+			return
+		}
+		a.drawMiniNoLyrics(dst, x, y, w, h, ready)
+		return
+	}
+	if a.nowPlayingViz() != "off" {
+		fitImg(&a.miniViz, w, h)
+		a.miniViz.Clear()
+		a.drawSpectrum(a.miniViz, 0, 0, w, h)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(x), float64(y))
+		op.ColorScale.ScaleAlpha(miniVizAlpha)
+		dst.DrawImage(a.miniViz, op)
+	}
+	a.drawMiniLyrics(dst, x, y, w, h, ly)
+}
+
+// drawMiniNoLyrics pinta un aviso discreto de una sola línea cuando la mini
+// letra está activa pero la canción no tiene letra y el visualizador está off.
+func (a *App) drawMiniNoLyrics(dst *ebiten.Image, x, y, w, h int, ready bool) {
+	if SmallFace == nil {
+		return
+	}
+	th := a.theme
+	midY := y + (h-smallCap)/2
+	if !ready {
+		msg := T("lyr_searching")
+		tw := textWidth(msg, SmallFace)
+		drawTextW(dst, msg, SmallFace, x+max(0, (w-tw)/2), midY, w, mix(th.Dim, th.Bg, 0.2))
+		return
+	}
+	if a.lyr.opt.Lyrics.Instrumental {
+		msg := T("lyr_instrumental")
+		tw := textWidth(msg, SmallFace)
+		col := mix(th.Text, th.Bg, 0.52)
+		iconCol := mix(th.Accent, th.Bg, 0.35)
+		total := tw
+		if tw+26 <= w {
+			total += 24
+		}
+		tx := x + max(0, (w-total)/2)
+		if tw+26 <= w {
+			drawIcon(dst, "note", tx, midY-1, iconCol)
+			tx += 12
+		}
+		drawTextW(dst, msg, SmallFace, tx, midY, w, col)
+		if tw+26 <= w {
+			drawIcon(dst, "note", tx+tw+4, midY-1, iconCol)
+		}
+		return
+	}
+	msg := T("lyr_none")
+	tw := textWidth(msg, SmallFace)
+	drawTextW(dst, msg, SmallFace, x+max(0, (w-tw)/2), midY, w, mix(th.Dim, th.Bg, 0.25))
+}
+
+// drawMiniLyrics pinta la letra actual estrictamente dentro del rectángulo
+// fijo (x, y, w, h) de Reproduciendo, con los mismos efectos de ajuste,
+// desplazamiento con muelle y karaoke que la vista completa.
+func (a *App) drawMiniLyrics(dst *ebiten.Image, x, y, w, h int, ly lyrics.Lyrics) {
+	l := &a.lyr
+	a.drawLyricsBlock(dst, ly, x, y, w, h, 18, false, &l.miniWrapW, &l.miniRows, &l.miniShown, &l.miniScroll, &l.miniVel, &l.miniLastT)
 }

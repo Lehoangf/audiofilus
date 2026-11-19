@@ -54,3 +54,6 @@ func fromHSV(h, s, v float64) color.RGBA {
 	}
 	return color.RGBA{uint8(r*255 + 0.5), uint8(g*255 + 0.5), uint8(b*255 + 0.5), 0xff}
 }
+
+// spotGreen es el color verde característico de Spotify (#1DB954).
+var spotGreen = color.RGBA{0x1d, 0xb9, 0x54, 0xff}

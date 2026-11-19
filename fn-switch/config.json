@@ -1,0 +1,48 @@
+{
+  "device": {
+    "event_path": "/dev/input/event3",
+    "device_name": "TRIMUI Brick Pro Controller",
+    "event_type": 5,
+    "event_code": 1,
+    "invert": false
+  },
+  "audio": {
+    "dac_volume": 140,
+    "headphone_gain": 0
+  },
+  "actions": {
+    "cpu": {
+      "enabled": true,
+      "governor_on": "powersave"
+    },
+    "brightness": {
+      "enabled": true,
+      "percent_on": 20
+    },
+    "volume": {
+      "enabled": true,
+      "mute_on": true,
+      "percent_on": 0,
+      "pause_media": true
+    },
+    "leds": {
+      "enabled": true,
+      "scale_on": 0,
+      "scale_lr": 0,
+      "scale_rear": 0,
+      "scale_f1f2": 0,
+      "breath_off": true,
+      "turn_off_all": true
+    },
+    "custom_commands": {
+      "enabled": false,
+      "on_command": "",
+      "off_command": ""
+    }
+  },
+  "controls": {
+    "f1_action": "mute",
+    "f2_action": "led_toggle",
+    "home_action": "retroarch_menu"
+  }
+}

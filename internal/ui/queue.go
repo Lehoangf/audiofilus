@@ -88,6 +88,15 @@ func (a *App) drawQueue(dst *ebiten.Image) {
 		title, artist := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)), ""
 		if s, ok := a.lib.Song(p); ok {
 			title, artist = s.Title, s.Artist
+		} else if isSpotifyPath(p) {
+			spID := extractSpotifyID(p)
+			if tr, ok := a.spotifyTrackMetadata(spID); ok {
+				title, artist = tr.Title, tr.Artist
+			} else if a.playingSong.Path == p && a.playingSong.Title != "" && a.playingSong.Title != "Spotify Track" {
+				title, artist = a.playingSong.Title, a.playingSong.Artist
+			} else {
+				title = "Spotify Track"
+			}
 		}
 		ry := y + i*rowH - off
 		mainCol, subCol := th.Text, th.Dim
@@ -105,7 +114,14 @@ func (a *App) drawQueue(dst *ebiten.Image) {
 			drawText(dst, fmt.Sprint(idx+1), SmallFace, x, ry, th.Dim)
 		}
 		mainW := cw * 58 / 100
-		drawTextW(dst, title, SmallFace, x+20, ry, mainW-22, mainCol)
+		titleX := x + 20
+		titleMaxW := mainW - 22
+		if isSmartTrack(p) {
+			drawIcon(dst, "sparkle", x+20, ry-1, th.Accent)
+			titleX += 10
+			titleMaxW -= 10
+		}
+		drawTextW(dst, title, SmallFace, titleX, ry, titleMaxW, mainCol)
 		drawTextW(dst, artist, SmallFace, x+mainW, ry, cw-mainW, subCol)
 	}
 	dst = whole

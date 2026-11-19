@@ -33,3 +33,38 @@ func TestCJKFallback(t *testing.T) {
 		}
 	}
 }
+
+// TestVietnameseFontsNativeSupport verifica que las fuentes por defecto utilicen
+// las versiones vietnamizadas (-VN) con soporte nativo de caracteres diacríticos.
+func TestVietnameseFontsNativeSupport(t *testing.T) {
+	if err := LoadFonts(); err != nil {
+		t.Fatal(err)
+	}
+	bigFont, smallFont := defaultFontNames()
+	if bigFont != "fonts/Jersey10-Regular-VN.ttf" {
+		t.Errorf("bigFont = %q, want fonts/Jersey10-Regular-VN.ttf", bigFont)
+	}
+	if smallFont != "fonts/Tiny5-Regular-VN.ttf" {
+		t.Errorf("smallFont = %q, want fonts/Tiny5-Regular-VN.ttf", smallFont)
+	}
+
+	samples := []string{
+		"Tiếng Việt",
+		"Đang phát nhạc",
+		"Bài hát yêu thích",
+		"Nơi này có anh",
+		"Bầu trời mới",
+		"Thoảng hương hoa",
+	}
+	for _, f := range []struct {
+		name string
+		face text.Face
+	}{{"small", SmallFace}, {"big", BigFace}} {
+		for _, s := range samples {
+			w := text.Advance(s, f.face)
+			if w <= 0 {
+				t.Errorf("%s: %q advance is %v, want > 0", f.name, s, w)
+			}
+		}
+	}
+}
