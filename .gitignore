@@ -1,5 +1,6 @@
 # Binarios
 /dist/
+/out/
 # libgme compilada (tools/libgme/build.sh)
 /build/
 /bin/
