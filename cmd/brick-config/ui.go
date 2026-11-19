@@ -344,13 +344,14 @@ func (u *UI) drawTabBar(dst *ebiten.Image, th Theme) {
 
 func (u *UI) drawMenuList(dst *ebiten.Image, th Theme) {
 	items := u.Items[u.CurrentTab]
-	startY := 50
-	itemH := 24
+	// Chiều cao gọn hơn để danh sách (tối đa 7 mục) không bị thanh hướng dẫn che.
+	startY := 48
+	itemH := 22
 	itemW := 304
 	itemX := 8
 
 	for i, it := range items {
-		iy := startY + i*(itemH+3)
+		iy := startY + i*(itemH+2)
 		isSelected := (i == u.SelectedIdx)
 
 		bg := th.PanelBg
@@ -368,7 +369,7 @@ func (u *UI) drawMenuList(dst *ebiten.Image, th Theme) {
 		}
 
 		// Nhãn bên trái
-		drawText(dst, it.Label, SmallFace, itemX+8, iy+7, lblCol)
+		drawText(dst, it.Label, SmallFace, itemX+8, iy+6, lblCol)
 
 		// Giá trị bên phải theo Type
 		switch it.Type {
@@ -404,18 +405,18 @@ func (u *UI) drawMenuList(dst *ebiten.Image, th Theme) {
 
 			// Số phần trăm
 			valStr := fmt.Sprintf("%d", it.Value)
-			drawText(dst, valStr, SmallFace, itemX+itemW-28, iy+7, th.Text)
+			drawText(dst, valStr, SmallFace, itemX+itemW-28, iy+6, th.Text)
 
 		case TypeChoice:
 			choiceText := it.Choices[it.ChoiceIdx]
 			cw := textWidth(choiceText, SmallFace)
 			cx := itemX + itemW - cw - 16
-			drawText(dst, "◄", SmallFace, cx-8, iy+7, th.TextDim)
-			drawText(dst, choiceText, SmallFace, cx, iy+7, th.Accent2)
-			drawText(dst, "►", SmallFace, cx+cw+3, iy+7, th.TextDim)
+			drawText(dst, "◄", SmallFace, cx-8, iy+6, th.TextDim)
+			drawText(dst, choiceText, SmallFace, cx, iy+6, th.Accent2)
+			drawText(dst, "►", SmallFace, cx+cw+3, iy+6, th.TextDim)
 
 		case TypeAction:
-			drawText(dst, "[ BẤM A ]", SmallFace, itemX+itemW-56, iy+7, th.Accent2)
+			drawText(dst, "[ BẤM A ]", SmallFace, itemX+itemW-56, iy+6, th.Accent2)
 		}
 	}
 }
@@ -428,7 +429,7 @@ func (u *UI) drawHardwareTester(dst *ebiten.Image, th Theme, hw HardwareInfo, cS
 	infoX := 130
 	infoY := 48
 	infoW := 182
-	infoH := 166
+	infoH := 162
 
 	panel(dst, infoX, infoY, infoW, infoH, th.PanelBg)
 	frame(dst, infoX, infoY, infoW, infoH, th.PanelBorder)
@@ -451,9 +452,9 @@ func (u *UI) drawHardwareTester(dst *ebiten.Image, th Theme, hw HardwareInfo, cS
 	}
 
 	// 3. Khu vực hiển thị phím bấm trực tiếp (Active Key Log)
-	sepY := infoY + 104
+	sepY := infoY + 102
 	rect(dst, infoX+8, sepY, infoW-16, 1, th.PanelBorder)
-	drawText(dst, "PHÍM ĐANG NHẬN:", SmallFace, infoX+8, sepY+5, th.Accent)
+	drawText(dst, "PHÍM ĐANG NHẬN:", SmallFace, infoX+8, sepY+4, th.Accent)
 
 	// Gom các phím đang bấm
 	var activeKeys []string
@@ -512,10 +513,10 @@ func (u *UI) drawHardwareTester(dst *ebiten.Image, th Theme, hw HardwareInfo, cS
 		activeKeys = append(activeKeys, "FN")
 	}
 
-	badgeY := sepY + 19
+	badgeY := sepY + 17
 	if len(activeKeys) == 0 {
-		drawText(dst, "(Chưa bấm phím nào)", SmallFace, infoX+8, badgeY+4, th.TextDim)
-		drawText(dst, "Bấm F1 F2 Home L1 R1 để test", SmallFace, infoX+8, badgeY+18, color.RGBA{0x55, 0x60, 0x85, 0xff})
+		drawText(dst, "(Chưa bấm phím nào)", SmallFace, infoX+8, badgeY+3, th.TextDim)
+		drawText(dst, "Test F1 F2 Home L R Start", SmallFace, infoX+8, badgeY+15, color.RGBA{0x55, 0x60, 0x85, 0xff})
 	} else {
 		// Vẽ các huy hiệu phím đang nhận
 		curX := infoX + 8
@@ -524,7 +525,7 @@ func (u *UI) drawHardwareTester(dst *ebiten.Image, th Theme, hw HardwareInfo, cS
 			kw := textWidth(k, SmallFace) + 8
 			if curX+kw > infoX+infoW-8 {
 				curX = infoX + 8
-				lineY += 15
+				lineY += 14
 			}
 			panel(dst, curX, lineY, kw, 12, th.Accent2)
 			drawText(dst, k, SmallFace, curX+4, lineY+1, color.RGBA{0x20, 0x10, 0x00, 0xff})
@@ -534,17 +535,18 @@ func (u *UI) drawHardwareTester(dst *ebiten.Image, th Theme, hw HardwareInfo, cS
 }
 
 func (u *UI) drawFooter(dst *ebiten.Image, th Theme) {
-	footY := 220
-	rect(dst, 0, footY, 320, 20, th.PanelBg)
+	// Đặt cao hơn để không che mục cuối của danh sách và bảng phần cứng.
+	footY := 216
+	rect(dst, 0, footY, 320, 24, th.PanelBg)
 	rect(dst, 0, footY, 320, 1, th.PanelBorder)
 
 	var hints string
 	if u.CurrentTab == 3 {
-		hints = "TEST NÚT THOẢI MÁI!   SELECT: Đổi Tab   GIỮ SELECT+START: Thoát"
+		hints = "Test phím/LED   SELECT: Đổi Tab   GIỮ SELECT+START: Thoát"
 	} else {
-		hints = "◄► Chỉnh   A Chọn   START Lưu   B Thoát   SELECT Tab"
+		hints = "◄► Chỉnh  A Chọn  START Lưu  B Thoát  SELECT Tab"
 	}
-	drawText(dst, hints, SmallFace, 8, footY+6, th.TextDim)
+	drawText(dst, hints, SmallFace, 6, footY+7, th.TextDim)
 }
 
 func (u *UI) drawConfirmExitModal(dst *ebiten.Image, th Theme) {
