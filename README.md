@@ -45,11 +45,10 @@ Bản fork này bổ sung các tính năng nâng cao dành riêng cho cộng đ�
   - Hỗ trợ lưu cấu hình key tự động vào `data/spotify_client.json`, có nút bấm `[⚡ DÙNG KEY MẪU]` và `[✕ XÓA TRỐNG]`.
 - **Bộ nhớ đệm thông minh (LRU Cache)**: Lưu bài hát ngoại tuyến vào thẻ nhớ và tải trước (prefetch) bài kế tiếp để phát nhạc mượt mà không bị gián đoạn.
 
-### 2. 🕹️ Tối ưu hóa phần cứng TrimUI Brick / Brick Pro & muOS
-- **Dịch vụ gạt nút FN (`fn-daemon`)**: Điều khiển phím gạt phần cứng FN để chuyển bài, tạm dừng hoặc bật tắt nhanh các chế độ.
-- **Bộ điều chỉnh âm lượng phần cứng (`trimui-volume-attenuate`)**: Kiểm soát DAC volume và headphone gain chống rè loa khi âm lượng cao.
-- **Công cụ cấu hình trên máy (`brick-config`)**: Tích hợp giao diện điều chỉnh FN switch ngay trong menu Ports.
-- **Hỗ trợ đa hệ điều hành**: Tương thích hoàn toàn với **muOS** (gói `.muxapp` và cài đặt qua Archive Manager) và **Knulli** (Allwinner A133P / Scarab).
+### 2. 🕹️ Tối ưu hóa cho TrimUI Brick / Brick Pro & muOS
+- **Hỗ trợ đa hệ điều hành**: Tương thích hoàn toàn với **muOS** (gói `.muxapp` cài đặt trực tiếp qua Archive Manager), **Knulli** (Allwinner A133P / Scarab), **PortMaster**, **ArkOS**, **ROCKNIX**, **EmuELEC**.
+- **Tối ưu phím điều khiển cầm tay**: Hỗ trợ đầy đủ phím FN, phím gạt, phím media và các tổ hợp phím tắt nhanh chuyển bài, tạm dừng, Pocket Mode.
+- **Tiết kiệm pin vượt trội (Pocket Mode)**: Cho phép tắt màn hình khi đang phát nhạc, tiêu thụ cực ít pin khi bỏ túi.
 
 ### 3. 🎤 Mini Lyrics, Karaoke Đồng bộ & Kho Visualizer Mở Rộng
 - **Mini Lyrics Overlay**: Hiển thị lời bài hát thu nhỏ nổi trên nền khi đang xem Visualizers hoặc chơi Mini-games.
@@ -83,8 +82,7 @@ Bản fork này bổ sung các tính năng nâng cao dành riêng cho cộng đ�
    ```
    /userdata/roms/ports/Audiofilus.sh
    ```
-5. *(Tùy chọn dành cho TrimUI Brick Pro)* Chạy script `update_sd.bat` trên Windows để tự động cài đặt `fn-daemon` và `brick-config` vào `/userdata/system/fn_switch/`.
-6. Lắp thẻ vào máy, cập nhật danh sách game (Update Gamelist) và mở **Audiofilus** trong mục **Ports**.
+5. Lắp thẻ vào máy, cập nhật danh sách game (Update Gamelist) và mở **Audiofilus** trong mục **Ports**.
 
 #### B. Hệ điều hành muOS
 1. Tải gói `audiofilus.muxapp` từ mục Releases.

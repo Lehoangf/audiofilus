@@ -51,49 +51,31 @@ func main() {
 	}
 
 	// 3. Build Windows AMD64
-	fmt.Println("[3/6] Building Windows AMD64 binary...")
+	fmt.Println("[3/5] Building Windows AMD64 binary...")
 	cmdWin := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -H=windowsgui -X "+pkgPath, "-o", "dist/audiofilus.exe", "./cmd/audiofilus")
 	cmdWin.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64")
 	if out, err := cmdWin.CombinedOutput(); err != nil {
 		fatal("build windows: "+string(out), err)
 	}
 
-	// 4. Build TrimUI Brick Pro tools (brick-config & fn-daemon)
-	fmt.Println("[4/6] Building TrimUI Brick Pro tools...")
-	cmdBrick := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", "dist/brick-config", "./cmd/brick-config")
-	cmdBrick.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=arm64")
-	if out, err := cmdBrick.CombinedOutput(); err != nil {
-		fatal("build brick-config: "+string(out), err)
-	}
+	// 4. Package formats
+	fmt.Println("[4/5] Packaging release archives...")
 
-	cmdFn := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", "../dist/fn-daemon", ".")
-	cmdFn.Dir = "fn-switch"
-	cmdFn.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=arm64")
-	if out, err := cmdFn.CombinedOutput(); err != nil {
-		fatal("build fn-daemon: "+string(out), err)
-	}
-
-	// 5. Package formats
-	fmt.Println("[5/6] Packaging release archives...")
-
-	// 5a. PortMaster: out/audiofilus-portmaster.zip
+	// 4a. PortMaster: out/audiofilus-portmaster.zip
 	packPortMaster(filepath.Join(outDir, "audiofilus-portmaster.zip"))
 
-	// 5b. muOS: out/audiofilus.muxapp
+	// 4b. muOS: out/audiofilus.muxapp
 	packMuxApp(filepath.Join(outDir, "audiofilus.muxapp"))
 
-	// 5c. Windows: out/audiofilus-windows-amd64.zip
+	// 4c. Windows: out/audiofilus-windows-amd64.zip
 	packWindowsZip(filepath.Join(outDir, "audiofilus-windows-amd64.zip"))
 
-	// 5d. Linux Desktop tarballs
+	// 4d. Linux Desktop tarballs
 	packLinuxTarGz("dist/audiofilus-amd64", filepath.Join(outDir, "audiofilus-linux-amd64.tar.gz"), "audiofilus-linux-amd64")
 	packLinuxTarGz("dist/audiofilus.aarch64", filepath.Join(outDir, "audiofilus-linux-arm64.tar.gz"), "audiofilus-linux-arm64")
 
-	// 5e. TrimUI Brick Pro FN Config zip
-	packBrickProFN(filepath.Join(outDir, "audiofilus-brickpro-fn.zip"))
-
-	// 6. Generate SHA256SUMS
-	fmt.Println("[6/6] Computing SHA256 checksums...")
+	// 5. Generate SHA256SUMS
+	fmt.Println("[5/5] Computing SHA256 checksums...")
 	writeSHA256Sums(outDir)
 
 	fmt.Println("\n=== ALL PACKAGES SUCCESSFULLY CREATED IN out/ ===")
@@ -211,36 +193,6 @@ func packLinuxTarGz(binPath, outTarGz, rootPrefix string) {
 	}
 	if _, err := os.Stat("README.md"); err == nil {
 		addFileToTar(tw, "README.md", rootPrefix+"/README.md", 0o644)
-	}
-}
-
-func packBrickProFN(outZip string) {
-	fmt.Println("  -> Packaging TrimUI Brick Pro FN Config:", outZip)
-	f, err := os.Create(outZip)
-	if err != nil {
-		fatal("create brickpro fn zip", err)
-	}
-	defer f.Close()
-	w := zip.NewWriter(f)
-	defer w.Close()
-
-	files := []struct {
-		src  string
-		dst  string
-		mode os.FileMode
-	}{
-		{"dist/brick-config", "brick-config", 0o755},
-		{"dist/fn-daemon", "fn-daemon", 0o755},
-		{"fn-switch/config.json", "config.json", 0o644},
-		{"fn-switch/service-fn_switch.sh", "service-fn_switch.sh", 0o755},
-		{"fn-switch/trimui-volume-attenuate", "trimui-volume-attenuate", 0o755},
-		{"fn-switch/BrickProConfig.sh", "Brick Pro FN Config.sh", 0o755},
-		{"update_sd.bat", "update_sd.bat", 0o755},
-	}
-	for _, it := range files {
-		if _, err := os.Stat(it.src); err == nil {
-			addFileToZip(w, it.src, it.dst, it.mode)
-		}
 	}
 }
 
