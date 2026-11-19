@@ -68,6 +68,7 @@ const (
 	setSleepTimer
 	setFetchLyrics
 	setKaraoke
+	setUpstream
 	setCount
 )
 
@@ -168,6 +169,7 @@ var settingSections = []settingSection{
 	{"sec_about", []settingTile{
 		{setUpdate, "download", tileAction},
 		{setGitHub, "gh", tileAction},
+		{setUpstream, "gh", tileAction},
 		{setDonate, "cup", tileAction},
 	}},
 	{"sec_exit", []settingTile{
@@ -333,6 +335,8 @@ func (a *App) updateSettings() {
 		case setAlarm:
 			a.openAlarm() // alarmui.go
 		case setGitHub:
+			a.settingsQR, a.qrURL = true, forkURL
+		case setUpstream:
 			a.settingsQR, a.qrURL = true, projectURL
 		case setDonate:
 			a.settingsQR, a.qrURL = true, donateURL
@@ -759,6 +763,8 @@ func (a *App) settingValue(i int) string {
 	case setUpdate:
 		return a.updateValue()
 	case setGitHub:
+		return forkURL[len("https://"):]
+	case setUpstream:
 		return projectURL[len("https://"):]
 	case setDonate:
 		return donateURL[len("https://"):]
@@ -815,7 +821,7 @@ func settingNames() [setCount]string {
 		T("set_milk_dir"), T("set_radio_dir"), T("set_theme_color"), T("set_crossfeed"), T("al_title"), T("set_vibration"), T("set_mpd"), T("set_orientation"), T("set_vcontrols"),
 		T("set_output"),
 		T("set_font"), T("set_now_viz"), T("set_prog_style"), T("set_splash"), T("set_sleeptimer"),
-		T("set_fetch_lyrics"), T("set_karaoke"),
+		T("set_fetch_lyrics"), T("set_karaoke"), "Upstream",
 	}
 }
 

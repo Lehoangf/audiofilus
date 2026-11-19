@@ -3,6 +3,7 @@ package spotify
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -19,10 +20,14 @@ import (
 	"time"
 )
 
-// DefaultClientID and DefaultClientSecret are fallback credentials for out-of-the-box Spotify login.
-const (
-	DefaultClientID     = "4fb7c85e66b8403a8ffdf424372dbf8e"
-	DefaultClientSecret = "4ace292096f241afb76e03e6aa9054c6"
+//go:embed assets/font.ttf
+var embeddedPortalFont []byte
+
+// DefaultClientID and DefaultClientSecret can be populated via build flags (-ldflags) if desired,
+// or configured dynamically via the web portal / config file.
+var (
+	DefaultClientID     = ""
+	DefaultClientSecret = ""
 )
 
 // Credentials stores Spotify access tokens and user tier.
@@ -281,6 +286,13 @@ func (a *AuthManager) StartLoginFlow() (string, error) {
 	portalURL := fmt.Sprintf("http://%s:%d/", ip, port)
 
 	mux := http.NewServeMux()
+
+	// GET /font.ttf : Embedded pixel retro font with full Vietnamese diacritics
+	mux.HandleFunc("/font.ttf", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "font/ttf")
+		w.Header().Set("Cache-Control", "public, max-age=31536000")
+		_, _ = w.Write(embeddedPortalFont)
+	})
 
 	// GET / : Web configuration and login portal
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -608,8 +620,15 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
   <title>Audiofilus · Đăng nhập Spotify</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Tiny5&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
   <style>
+    @font-face {
+      font-family: 'RetroPixelVN';
+      src: url('/font.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
     * {
       box-sizing: border-box;
       image-rendering: pixelated;
@@ -621,14 +640,14 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
         linear-gradient(rgba(18, 16, 28, 0.4) 50%%, rgba(0, 0, 0, 0.6) 50%%);
       background-size: 16px 16px, 100%% 4px;
       color: #f1ecff;
-      font-family: 'VT323', 'Courier New', monospace;
-      font-size: 19px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'VT323', 'Segoe UI', system-ui, -apple-system, monospace;
+      font-size: 20px;
       margin: 0;
       padding: 16px;
       line-height: 1.4;
     }
     .container {
-      max-width: 540px;
+      max-width: 560px;
       margin: 0 auto;
       padding-bottom: 30px;
     }
@@ -641,15 +660,16 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       margin-bottom: 20px;
     }
     .logo-text {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 13px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 20px;
       color: #1ed760;
       text-shadow: 2px 2px 0 #000;
       letter-spacing: 1px;
       margin: 0 0 8px 0;
     }
     .sub-text {
-      font-size: 17px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'VT323', monospace;
+      font-size: 18px;
       color: #8f87ad;
       margin: 0;
       letter-spacing: 0.5px;
@@ -662,24 +682,26 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       margin-bottom: 18px;
     }
     .card-title {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 11px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 17px;
       color: #4fe3c1;
       text-shadow: 2px 2px 0 #000;
       margin: 0 0 12px 0;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex-wrap: wrap;
     }
     .step-tag {
       background: #ff5fa2;
       color: #000;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 9px;
-      padding: 3px 6px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 13px;
+      font-weight: bold;
+      padding: 3px 8px;
       border: 2px solid #000;
       box-shadow: 2px 2px 0 #000;
+      line-height: 1.1;
     }
     .step-tag.green {
       background: #1ed760;
@@ -696,22 +718,24 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
     p {
       margin: 6px 0 10px 0;
       color: #c9c3e0;
-      font-size: 18px;
+      font-size: 19px;
+      line-height: 1.4;
     }
     label {
       display: block;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 9px;
+      font-family: 'RetroPixelVN', 'Jersey 10', monospace;
+      font-size: 14px;
       color: #8f87ad;
       margin-top: 12px;
       margin-bottom: 4px;
+      letter-spacing: 0.5px;
     }
     .pixel-input {
       width: 100%%;
       background: #090710;
       border: 2px solid #554c79;
       color: #1ed760;
-      font-family: 'VT323', 'Courier New', monospace;
+      font-family: 'RetroPixelVN', 'VT323', 'Courier New', monospace;
       font-size: 20px;
       padding: 8px 10px;
       margin-bottom: 6px;
@@ -724,9 +748,9 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       color: #fff;
     }
     .pixel-btn {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 11px;
-      padding: 13px 12px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 16px;
+      padding: 12px 14px;
       border: 3px solid #000;
       cursor: pointer;
       text-decoration: none;
@@ -763,9 +787,9 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       flex-wrap: wrap;
     }
     .pixel-btn-small {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 8px;
-      padding: 7px 9px;
+      font-family: 'RetroPixelVN', 'Jersey 10', monospace;
+      font-size: 13px;
+      padding: 8px 10px;
       border: 2px solid #000;
       cursor: pointer;
       background: #312a4f;
@@ -785,7 +809,7 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       background: #090710;
       border: 2px solid #332d4b;
       padding: 8px 10px;
-      font-size: 16px;
+      font-size: 17px;
       color: #4fe3c1;
       word-break: break-all;
       margin: 6px 0;
@@ -795,9 +819,9 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
       display: none;
       padding: 10px 12px;
       border: 3px solid #000;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 9px;
-      line-height: 1.5;
+      font-family: 'RetroPixelVN', 'Jersey 10', monospace;
+      font-size: 15px;
+      line-height: 1.4;
       margin-top: 12px;
       box-shadow: 3px 3px 0 #000;
     }
@@ -913,6 +937,10 @@ func loginPortalHTML(ip string, port int, curClientID, curClientSecret string) s
     const DEFAULT_SEC = "%s";
 
     function fillDefaultKeys() {
+      if (!DEFAULT_CID) {
+        showToast('keySaveStatus', 'info', 'ℹ Chưa cấu hình key mẫu. Vui lòng nhập Client ID của bạn.');
+        return;
+      }
       document.getElementById('clientId').value = DEFAULT_CID;
       document.getElementById('clientSecret').value = DEFAULT_SEC;
       showToast('keySaveStatus', 'ok', '✓ ĐÃ ĐIỀN KEY MẪU MẶC ĐỊNH!');
@@ -1027,8 +1055,15 @@ const loginSuccessHTML = `<!DOCTYPE html>
   <title>Audiofilus · Đăng nhập thành công</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Tiny5&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
   <style>
+    @font-face {
+      font-family: 'RetroPixelVN';
+      src: url('/font.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
     * {
       box-sizing: border-box;
       image-rendering: pixelated;
@@ -1040,7 +1075,7 @@ const loginSuccessHTML = `<!DOCTYPE html>
         linear-gradient(rgba(18, 16, 28, 0.4) 50%, rgba(0, 0, 0, 0.6) 50%);
       background-size: 16px 16px, 100% 4px;
       color: #f1ecff;
-      font-family: 'VT323', 'Courier New', monospace;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'VT323', 'Segoe UI', system-ui, monospace;
       padding: 40px 16px;
       margin: 0;
       text-align: center;
@@ -1056,9 +1091,10 @@ const loginSuccessHTML = `<!DOCTYPE html>
     .badge {
       background: #1ed760;
       color: #000;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 10px;
-      padding: 6px 10px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 14px;
+      font-weight: bold;
+      padding: 6px 12px;
       border: 2px solid #000;
       box-shadow: 3px 3px 0 #000;
       display: inline-block;
@@ -1071,12 +1107,12 @@ const loginSuccessHTML = `<!DOCTYPE html>
       text-shadow: 3px 3px 0 #000;
     }
     h2 {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 13px;
+      font-family: 'RetroPixelVN', 'Jersey 10', 'Press Start 2P', monospace;
+      font-size: 20px;
       color: #4fe3c1;
       text-shadow: 2px 2px 0 #000;
       margin: 10px 0 16px 0;
-      line-height: 1.5;
+      line-height: 1.4;
     }
     p {
       color: #c9c3e0;
@@ -1091,14 +1127,15 @@ const loginSuccessHTML = `<!DOCTYPE html>
       letter-spacing: 4px;
     }
     .hint {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 9px;
+      font-family: 'RetroPixelVN', 'Jersey 10', monospace;
+      font-size: 14px;
       color: #f2c418;
       background: #25203d;
-      padding: 8px;
+      padding: 10px;
       border: 2px solid #000;
       margin-top: 20px;
       box-shadow: 2px 2px 0 #000;
+      line-height: 1.4;
     }
   </style>
 </head>

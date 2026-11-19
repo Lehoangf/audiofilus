@@ -1415,6 +1415,7 @@ func (a *App) checkSpotifyTabLoad() {
 						}
 					}
 					s.liked = merged
+					a.applySpotifySort()
 				}
 				loaded := false
 				if resp, err := control.Call(a.paths.Socket, control.Request{Cmd: "spotify", Args: []string{"liked_page", "0", "50", "false"}}); err == nil {
@@ -1464,13 +1465,19 @@ func (a *App) checkSpotifyTabLoad() {
 				if resp, err := control.Call(a.paths.Socket, control.Request{Cmd: "spotify", Args: []string{"cached_playlists"}}); err == nil {
 					var pls []spotifyPlaylist
 					if err := json.Unmarshal(resp.Data, &pls); err == nil && len(pls) > 0 {
-						a.postUI(func() { s.playlists = pls })
+						a.postUI(func() {
+							s.playlists = pls
+							a.applySpotifySort()
+						})
 					}
 				}
 				if resp, err := control.Call(a.paths.Socket, control.Request{Cmd: "spotify", Args: []string{"playlists"}}); err == nil {
 					var pls []spotifyPlaylist
 					if err := json.Unmarshal(resp.Data, &pls); err == nil && len(pls) > 0 {
-						a.postUI(func() { s.playlists = pls })
+						a.postUI(func() {
+							s.playlists = pls
+							a.applySpotifySort()
+						})
 					}
 				}
 			}()
@@ -1657,8 +1664,12 @@ func (a *App) updateSpotify() {
 			}
 			a.playSpotifyCollection(collType, s.openPl.ID, s.openPl.Tracks, s.openPlSel)
 			a.addRecentSpotify(tr)
-		case in.Pressed(ActMenu) && n > 0:
-			a.spotifyTrackMenu(s.openPl.Tracks, s.openPlSel)
+		case in.Pressed(ActMenu):
+			if n > 0 {
+				a.spotifyTrackMenu(s.openPl.Tracks, s.openPlSel)
+			} else {
+				a.openSpotifySortMenu()
+			}
 		}
 		return
 	}
@@ -1777,16 +1788,22 @@ func (a *App) updateSpotify() {
 		case spLiked:
 			if n > 0 && sel < len(s.liked) {
 				a.spotifyTrackMenu(s.liked, sel)
+			} else {
+				a.openSpotifySortMenu()
 			}
 		case spPlaylists:
 			if n > 0 && sel < len(s.playlists) {
 				pl := s.playlists[sel]
 				a.spotifyPlaylistMenu(pl)
+			} else {
+				a.openSpotifyPlSortMenu()
 			}
 		case spAlbums:
 			if n > 0 && sel < len(s.albums) {
 				pl := s.albums[sel]
 				a.spotifyPlaylistMenu(pl)
+			} else {
+				a.openSpotifyPlSortMenu()
 			}
 		}
 	}
@@ -1942,6 +1959,15 @@ func (a *App) spotifyTrackMenu(tracks []spotifyTrack, idx int) {
 	}
 	if len(a.downloadJobs()) > 0 {
 		m.items = append(m.items, menuItem{label: T("ytm_jobs"), icon: "list", do: a.openDownloads})
+	}
+	if a.spot.openPl != nil || a.spot.tab == spLiked {
+		m.items = append(m.items, menuItem{
+			label: T("sm_sort", a.spotifySortLabel()),
+			icon:  "list",
+			do: func() {
+				a.openSpotifySortMenu()
+			},
+		})
 	}
 	a.menu = m
 }
@@ -2231,6 +2257,13 @@ func (a *App) spotifyPlaylistMenu(pl spotifyPlaylist) {
 	if len(a.downloadJobs()) > 0 {
 		m.items = append(m.items, menuItem{label: T("ytm_jobs"), icon: "list", do: a.openDownloads})
 	}
+	m.items = append(m.items, menuItem{
+		label: T("sm_sort", a.spotifyPlSortLabel()),
+		icon:  "list",
+		do: func() {
+			a.openSpotifyPlSortMenu()
+		},
+	})
 	a.menu = m
 }
 

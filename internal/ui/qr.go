@@ -8,10 +8,11 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// projectURL es el repositorio de audiofilus y donateURL la página de
-// donaciones del autor: salen en Ajustes, cada uno con su QR.
+// projectURL es el repositorio original de audiofilus, forkURL el repositorio de la fork
+// y donateURL la página de donaciones del autor: salen en Ajustes, cada uno con su QR.
 const (
 	projectURL = "https://github.com/juanvillacortac/audiofilus"
+	forkURL    = "https://github.com/Lehoangf/audiofilus"
 	donateURL  = "https://ko-fi.com/juanvillacortac"
 )
 

@@ -80,11 +80,15 @@ func (a *App) rootView(tab int) *view {
 	l := a.lib
 	switch tab {
 	case tabAlbums:
-		return &view{kind: vAlbums, title: T("tab_albums"), albums: l.Albums}
+		v := &view{kind: vAlbums, title: T("tab_albums"), albums: append([]*Album(nil), l.Albums...)}
+		a.applyLibSort(v)
+		return v
 	case tabArtists:
-		return &view{kind: vArtists, title: T("tab_artists"), artists: l.Artists}
+		v := &view{kind: vArtists, title: T("tab_artists"), artists: append([]*Artist(nil), l.Artists...)}
+		a.applyLibSort(v)
+		return v
 	case tabLists:
-		pls := l.Playlists
+		pls := append([]*Playlist(nil), l.Playlists...)
 		if l == a.local { // las que salen solas, en la biblioteca de aquí
 			pls = append(a.autoPlaylists(), pls...)
 		}
@@ -93,23 +97,33 @@ func (a *App) rootView(tab int) *view {
 				a.smartFill(pl)
 			}
 		}
-		return &view{kind: vPlaylists, title: T("tab_lists"), playlists: pls}
+		v := &view{kind: vPlaylists, title: T("tab_lists"), playlists: pls}
+		a.applyLibSort(v)
+		return v
 	case tabFolders:
 		if len(l.Roots) == 1 {
 			return a.folderView(l.Roots[0])
 		}
-		return &view{kind: vFolder, title: T("tab_folders"), dirs: l.Roots}
+		v := &view{kind: vFolder, title: T("tab_folders"), dirs: append([]string(nil), l.Roots...)}
+		a.applyLibSort(v)
+		return v
 	}
-	return &view{kind: vSongs, title: T("tab_songs"), songs: l.Songs}
+	v := &view{kind: vSongs, title: T("tab_songs"), songs: append([]Song(nil), l.Songs...)}
+	a.applyLibSort(v)
+	return v
 }
 
 func (a *App) folderView(dir string) *view {
 	dirs, songs := a.lib.Folder(dir)
-	return &view{kind: vFolder, title: filepath.Base(dir), dir: dir, dirs: dirs, songs: songs}
+	v := &view{kind: vFolder, title: filepath.Base(dir), dir: dir, dirs: dirs, songs: songs}
+	a.applyLibSort(v)
+	return v
 }
 
 func (a *App) albumView(al *Album) *view {
-	return &view{kind: vAlbum, title: al.Title, album: al, songs: al.Songs}
+	v := &view{kind: vAlbum, title: al.Title, album: al, songs: append([]Song(nil), al.Songs...)}
+	a.applyLibSort(v)
+	return v
 }
 
 // cur es la vista de arriba de la sección actual.
@@ -229,6 +243,9 @@ func (a *App) updateLibrary() {
 			a.menu.items = []menuItem{it}
 		}
 		return
+	case in.Pressed(ActMenu) && a.canSortView(v):
+		a.openLibSortMenu(v)
+		return
 	case in.Pressed(ActShuffle) && a.shuffleTwice():
 		a.playRandomSong() // doble X: una canción al azar de toda la biblioteca
 		return
@@ -304,7 +321,9 @@ func (a *App) openItem(v *view) {
 			return
 		}
 		a.smartFill(pl) // una lista inteligente: sus canciones, ahora
-		a.push(&view{kind: vPlaylist, title: pl.Name, songs: pl.Songs, pl: pl})
+		pv := &view{kind: vPlaylist, title: pl.Name, songs: append([]Song(nil), pl.Songs...), pl: pl}
+		a.applyLibSort(pv)
+		a.push(pv)
 	case vStats:
 		if p := v.stats[v.sel].path; p != "" {
 			a.playSongs([]Song{a.songFor(p, "", "", "")}, 0, false)

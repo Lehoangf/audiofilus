@@ -272,8 +272,8 @@ func Default() Config {
 		UI:      UI{SleepAfter: 30, Clock24: true, SleepMode: "backlight", Visualizer: "milk", VisualBG: true},
 		Hotkeys: Hotkeys{Enabled: true, Taps: 3, TapMS: 400, WindowMS: 1500, SeekSec: 10},
 		Spotify: Spotify{
-			ClientID:     "4fb7c85e66b8403a8ffdf424372dbf8e",
-			ClientSecret: "4ace292096f241afb76e03e6aa9054c6",
+			ClientID:     "",
+			ClientSecret: "",
 		},
 	}
 }

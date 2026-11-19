@@ -249,6 +249,13 @@ func (a *App) openItemMenu(v *view) {
 			a.menu.items = append(a.menu.items, a.srvPlaylistSongItems(v.pl, v.sel)...) // serverplaylists.go
 		}
 	}
+	if a.menu != nil && a.canSortView(v) {
+		a.menu.items = append(a.menu.items, menuItem{
+			label: T("sm_sort", a.libSortLabel(v)),
+			icon:  "list",
+			do:    func() { a.openLibSortMenu(v) },
+		})
+	}
 }
 
 // openNowMenu es el menú de la pantalla de reproducción.

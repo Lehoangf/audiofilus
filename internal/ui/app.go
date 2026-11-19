@@ -209,6 +209,7 @@ type App struct {
 	radio      radioState        // la radio por internet (radio.go)
 	pod        podState          // los podcasts (podcasts.go)
 	spot       spotifyState      // Spotify online (spotify.go)
+	sortState  sortPreferences   // modos de ordenación de biblioteca y Spotify (sort.go)
 	snd        soundState        // los sonidos de la interfaz (sounds.go)
 	local      *Library          // la biblioteca de la tarjeta (a.lib es la que se ve)
 	remotes    []*remoteSource   // los servidores (servers.go)
