@@ -903,6 +903,11 @@ type spotifyState struct {
 	openPl         *spotifyPlaylist
 	openPlSel      int
 	openPlScr      scroller
+	origLiked      []spotifyTrack
+	origPlTracks   []spotifyTrack
+	origPlID       string
+	origPlaylists  []spotifyPlaylist
+	origAlbums     []spotifyPlaylist
 	query          string
 	loggedIn       bool
 	product        string
@@ -1038,6 +1043,13 @@ func (a *App) shouldFetchNextSpotifyPage(pl *spotifyPlaylist, sel int) bool {
 		return false
 	}
 	if pl.TrackCount > 0 && len(pl.Tracks) >= pl.TrackCount {
+		return false
+	}
+	// When sorted, all tracks are already loaded; never fetch piecemeal pages that would break sort order
+	if a.spot.openPl != nil && a.sortState.spotTracks != 0 {
+		return false
+	}
+	if a.spot.tab == spLiked && a.sortState.spotLiked != 0 {
 		return false
 	}
 	return sel >= len(pl.Tracks)-5
@@ -2348,7 +2360,7 @@ func (a *App) drawSpotify(dst *ebiten.Image) {
 		}
 	}
 
-	// Loading banner: only shown when items are already present on screen
+	// Loading banner: shown as an indicator badge without jumping content coordinates
 	if (s.loading || s.syncing.Load()) && hasItems {
 		msg := s.loadingMsg
 		if msg == "" {
@@ -2356,12 +2368,11 @@ func (a *App) drawSpotify(dst *ebiten.Image) {
 		}
 		bw := textWidth(msg, SmallFace) + 24
 		bx := x0 + max(0, (cw-bw)/2)
-		by := top - 2
+		by := topH + 2
 		panel(dst, bx, by, bw, 13, mix(th.Bg2, spotGreen, 0.4))
 		rect(dst, bx, by, 2, 13, spotGreen)
 		drawIcon(dst, fmt.Sprintf("hourglass%d", int(a.t/15)%3), bx+4, by+3, spotGreen)
 		drawText(dst, msg, SmallFace, bx+14, by+3, th.Text)
-		top += 16
 	}
 
 	var hints []hint

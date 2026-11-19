@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/juanvillacortac/audiofilus/internal/control"
 )
 
 // sortPreferences guarda los modos de ordenación activos para la biblioteca y Spotify.
@@ -383,12 +386,16 @@ func (a *App) applySpotifySort() {
 			})
 		case 2:
 			sort.SliceStable(s.openPl.Tracks, func(i, j int) bool {
+				return strings.ToLower(s.openPl.Tracks[i].Title) > strings.ToLower(s.openPl.Tracks[j].Title)
+			})
+		case 3:
+			sort.SliceStable(s.openPl.Tracks, func(i, j int) bool {
 				if !strings.EqualFold(s.openPl.Tracks[i].Artist, s.openPl.Tracks[j].Artist) {
 					return strings.ToLower(s.openPl.Tracks[i].Artist) < strings.ToLower(s.openPl.Tracks[j].Artist)
 				}
 				return strings.ToLower(s.openPl.Tracks[i].Title) < strings.ToLower(s.openPl.Tracks[j].Title)
 			})
-		case 3:
+		case 4:
 			sort.SliceStable(s.openPl.Tracks, func(i, j int) bool {
 				return s.openPl.Tracks[i].Duration > s.openPl.Tracks[j].Duration
 			})
@@ -445,7 +452,7 @@ func (a *App) applySpotifySort() {
 			})
 		case 2:
 			sort.SliceStable(s.albums, func(i, j int) bool {
-				return strings.ToLower(s.albums[i].Name) < strings.ToLower(s.albums[j].Name)
+				return strings.ToLower(s.albums[i].Name) > strings.ToLower(s.albums[j].Name)
 			})
 		case 3:
 			sort.SliceStable(s.albums, func(i, j int) bool {
@@ -454,6 +461,128 @@ func (a *App) applySpotifySort() {
 		}
 		s.sel[spAlbums] = 0
 	}
+}
+
+// setSpotifyTrackSort aplica o descarga la lista completa para ordenar la lista abierta de Spotify.
+func (a *App) setSpotifyTrackSort(val int) {
+	s := &a.spot
+	if s.openPl == nil {
+		return
+	}
+	pl := s.openPl
+	if val == 0 {
+		a.sortState.spotTracks = 0
+		if len(s.origPlTracks) > 0 && s.origPlID == pl.ID {
+			pl.Tracks = append([]spotifyTrack(nil), s.origPlTracks...)
+		}
+		s.openPlSel = 0
+		s.openPlScr = scroller{}
+		a.flash(T("sm_sort", a.spotifySortLabel()))
+		return
+	}
+
+	needFetch := (pl.TrackCount > 0 && len(pl.Tracks) < pl.TrackCount) || (len(pl.Tracks) <= 50 && pl.TrackCount > 50)
+	if needFetch && a.paths.Socket != "" {
+		a.sortState.spotTracks = val
+		s.loading = true
+		s.loadingMsg = T("spotify_sort_loading")
+		a.flash(T("spotify_sort_loading"))
+
+		go func(plID string, isAlbum bool, sortVal int) {
+			subCmd := "playlist_tracks"
+			if isAlbum {
+				subCmd = "album_tracks"
+			}
+			resp, err := control.Call(a.paths.Socket, control.Request{Cmd: "spotify", Args: []string{subCmd, plID}})
+			a.postUI(func() {
+				s.loading = false
+				if err != nil {
+					a.flash(err.Error())
+					return
+				}
+				var fullTracks []spotifyTrack
+				if err := json.Unmarshal(resp.Data, &fullTracks); err == nil && len(fullTracks) > 0 {
+					if s.openPl != nil && s.openPl.ID == plID {
+						s.origPlTracks = append([]spotifyTrack(nil), fullTracks...)
+						s.origPlID = plID
+						s.openPl.Tracks = fullTracks
+						s.openPl.TrackCount = len(fullTracks)
+						a.sortState.spotTracks = sortVal
+						a.applySpotifySort()
+						s.openPlSel = 0
+						s.openPlScr = scroller{}
+						a.flash(T("sm_sort", a.spotifySortLabel()))
+					}
+				}
+			})
+		}(pl.ID, pl.IsAlbum, val)
+		return
+	}
+
+	if s.origPlID != pl.ID || len(s.origPlTracks) == 0 {
+		s.origPlTracks = append([]spotifyTrack(nil), pl.Tracks...)
+		s.origPlID = pl.ID
+	}
+	a.sortState.spotTracks = val
+	a.applySpotifySort()
+	s.openPlSel = 0
+	s.openPlScr = scroller{}
+	a.flash(T("sm_sort", a.spotifySortLabel()))
+}
+
+// setSpotifyLikedSort aplica o descarga la lista completa para ordenar canciones Me gusta de Spotify.
+func (a *App) setSpotifyLikedSort(val int) {
+	s := &a.spot
+	if val == 0 {
+		a.sortState.spotLiked = 0
+		if len(s.origLiked) > 0 {
+			s.liked = append([]spotifyTrack(nil), s.origLiked...)
+		}
+		s.sel[spLiked] = 0
+		s.scr[spLiked] = scroller{}
+		a.flash(T("sm_sort", a.spotifySortLabel()))
+		return
+	}
+
+	needFetch := (s.likedTotal > 0 && len(s.liked) < s.likedTotal) || (len(s.liked) <= 50 && s.likedTotal > 50)
+	if needFetch && a.paths.Socket != "" {
+		a.sortState.spotLiked = val
+		s.loading = true
+		s.loadingMsg = T("spotify_sort_loading")
+		a.flash(T("spotify_sort_loading"))
+
+		go func(sortVal int) {
+			resp, err := control.Call(a.paths.Socket, control.Request{Cmd: "spotify", Args: []string{"liked"}})
+			a.postUI(func() {
+				s.loading = false
+				if err != nil {
+					a.flash(err.Error())
+					return
+				}
+				var fullTracks []spotifyTrack
+				if err := json.Unmarshal(resp.Data, &fullTracks); err == nil && len(fullTracks) > 0 {
+					s.origLiked = append([]spotifyTrack(nil), fullTracks...)
+					s.liked = fullTracks
+					s.likedTotal = len(fullTracks)
+					a.sortState.spotLiked = sortVal
+					a.applySpotifySort()
+					s.sel[spLiked] = 0
+					s.scr[spLiked] = scroller{}
+					a.flash(T("sm_sort", a.spotifySortLabel()))
+				}
+			})
+		}(val)
+		return
+	}
+
+	if len(s.origLiked) == 0 {
+		s.origLiked = append([]spotifyTrack(nil), s.liked...)
+	}
+	a.sortState.spotLiked = val
+	a.applySpotifySort()
+	s.sel[spLiked] = 0
+	s.scr[spLiked] = scroller{}
+	a.flash(T("sm_sort", a.spotifySortLabel()))
 }
 
 // openSpotifySortMenu despliega el menú de ordenación para pistas de Spotify.
@@ -466,12 +595,10 @@ func (a *App) openSpotifySortMenu() {
 			icon:  "list",
 			do: func() {
 				if s.openPl != nil {
-					a.sortState.spotTracks = val
+					a.setSpotifyTrackSort(val)
 				} else {
-					a.sortState.spotLiked = val
+					a.setSpotifyLikedSort(val)
 				}
-				a.applySpotifySort()
-				a.flash(T("sm_sort", a.spotifySortLabel()))
 			},
 		})
 	}
@@ -494,8 +621,23 @@ func (a *App) openSpotifyPlSortMenu() {
 				label: label,
 				icon:  "list",
 				do: func() {
+					if val == 0 {
+						a.sortState.spotAlbums = 0
+						if len(s.origAlbums) > 0 {
+							s.albums = append([]spotifyPlaylist(nil), s.origAlbums...)
+						}
+						s.sel[spAlbums] = 0
+						s.scr[spAlbums] = scroller{}
+						a.flash(T("sm_sort", a.spotifyPlSortLabel()))
+						return
+					}
+					if len(s.origAlbums) == 0 {
+						s.origAlbums = append([]spotifyPlaylist(nil), s.albums...)
+					}
 					a.sortState.spotAlbums = val
 					a.applySpotifySort()
+					s.sel[spAlbums] = 0
+					s.scr[spAlbums] = scroller{}
 					a.flash(T("sm_sort", a.spotifyPlSortLabel()))
 				},
 			})
@@ -510,8 +652,23 @@ func (a *App) openSpotifyPlSortMenu() {
 				label: label,
 				icon:  "list",
 				do: func() {
+					if val == 0 {
+						a.sortState.spotPls = 0
+						if len(s.origPlaylists) > 0 {
+							s.playlists = append([]spotifyPlaylist(nil), s.origPlaylists...)
+						}
+						s.sel[spPlaylists] = 0
+						s.scr[spPlaylists] = scroller{}
+						a.flash(T("sm_sort", a.spotifyPlSortLabel()))
+						return
+					}
+					if len(s.origPlaylists) == 0 {
+						s.origPlaylists = append([]spotifyPlaylist(nil), s.playlists...)
+					}
 					a.sortState.spotPls = val
 					a.applySpotifySort()
+					s.sel[spPlaylists] = 0
+					s.scr[spPlaylists] = scroller{}
 					a.flash(T("sm_sort", a.spotifyPlSortLabel()))
 				},
 			})
